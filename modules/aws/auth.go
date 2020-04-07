@@ -30,14 +30,7 @@ func NewAuthenticatedSession(region string) (*session.Session, error) {
 
 // NewAuthenticatedSessionFromDefaultCredentials gets an AWS Session, checking that the user has credentials properly configured in their environment.
 func NewAuthenticatedSessionFromDefaultCredentials(region string) (*session.Session, error) {
-	awsConfig := aws.NewConfig().WithRegion(region)
-
-	sessionOptions := session.Options{
-		Config:            *awsConfig,
-		SharedConfigState: session.SharedConfigEnable,
-	}
-
-	sess, err := session.NewSessionWithOptions(sessionOptions)
+	sess, err := getNewSession(aws.NewConfig().WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +61,7 @@ func NewAuthenticatedSessionFromRole(region string, roleARN string) (*session.Se
 // CreateAwsSessionFromRole returns a new AWS session after assuming the role
 // whose ARN is provided in roleARN.
 func CreateAwsSessionFromRole(region string, roleARN string) (*session.Session, error) {
-	sess, err := session.NewSession(aws.NewConfig().WithRegion(region))
+	sess, err := getNewSession(aws.NewConfig().WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +103,7 @@ func CreateAwsSessionWithMfa(region string, stsClient *sts.STS, mfaDevice *iam.V
 	sessionToken := *output.Credentials.SessionToken
 
 	creds := CreateAwsCredentialsWithSessionToken(accessKeyID, secretAccessKey, sessionToken)
-	return session.NewSession(aws.NewConfig().WithRegion(region).WithCredentials(creds))
+	return getNewSession(aws.NewConfig().WithRegion(region).WithCredentials(creds))
 }
 
 // CreateAwsCredentials creates an AWS Credentials configuration with specific AWS credentials.
@@ -159,4 +152,49 @@ type CredentialsError struct {
 
 func (err CredentialsError) Error() string {
 	return fmt.Sprintf("Error finding AWS credentials. Did you set the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or configure an AWS profile? Underlying error: %v", err.UnderlyingErr)
+}
+
+func getNewSession(c *aws.Config) (*session.Session, error) {
+	var config *aws.Config
+	customConfig := GetCustomConfig()
+
+	if customConfig != nil {
+		config = getAwsConfigFromCustomConfig(customConfig)
+	} else {
+		config = c
+	}
+
+	return session.NewSession(config)
+}
+
+func getAwsConfigFromCustomConfig(customConfig *Config) *aws.Config {
+	WithS3ForcePathStyle := true
+	awsConfig := &aws.Config{
+		S3ForcePathStyle:                  &WithS3ForcePathStyle,
+		Region:                            customConfig.Region,
+		Endpoint:                          customConfig.Endpoint,
+		CredentialsChainVerboseErrors:     customConfig.CredentialsChainVerboseErrors,
+		Credentials:                       customConfig.Credentials,
+		EndpointResolver:                  customConfig.EndpointResolver,
+		EnforceShouldRetryCheck:           customConfig.EnforceShouldRetryCheck,
+		DisableSSL:                        customConfig.DisableSSL,
+		HTTPClient:                        customConfig.HTTPClient,
+		MaxRetries:                        customConfig.MaxRetries,
+		Retryer:                           customConfig.Retryer,
+		DisableParamValidation:            customConfig.DisableParamValidation,
+		DisableComputeChecksums:           customConfig.DisableComputeChecksums,
+		S3Disable100Continue:              customConfig.S3Disable100Continue,
+		S3UseAccelerate:                   customConfig.S3UseAccelerate,
+		S3DisableContentMD5Validation:     customConfig.S3DisableContentMD5Validation,
+		S3UseARNRegion:                    customConfig.S3UseARNRegion,
+		EC2MetadataDisableTimeoutOverride: customConfig.EC2MetadataDisableTimeoutOverride,
+		UseDualStack:                      customConfig.UseDualStack,
+		SleepDelay:                        customConfig.SleepDelay,
+		DisableRestProtocolURICleaning:    customConfig.DisableRestProtocolURICleaning,
+		EnableEndpointDiscovery:           customConfig.EnableEndpointDiscovery,
+		DisableEndpointHostPrefix:         customConfig.DisableEndpointHostPrefix,
+		STSRegionalEndpoint:               customConfig.STSRegionalEndpoint,
+		S3UsEast1RegionalEndpoint:         customConfig.S3UsEast1RegionalEndpoint}
+
+	return awsConfig
 }
