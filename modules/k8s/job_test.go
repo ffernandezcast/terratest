@@ -1,3 +1,4 @@
+//go:build kubeall || kubernetes
 // +build kubeall kubernetes
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests. This is done because minikube
@@ -6,7 +7,7 @@
 // tests separately from the others. This may not be necessary if you have a sufficiently powerful machine.  We
 // recommend at least 4 cores and 16GB of RAM if you want to run all the tests together.
 
-package k8s
+package k8s_test
 
 import (
 	"fmt"
@@ -14,6 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gruntwork-io/terratest/modules/k8s"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -25,59 +29,65 @@ import (
 func TestListJobsReturnsJobsInNamespace(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_JOB_YAML_TEMPLATE, uniqueID, uniqueID)
-	defer KubectlDeleteFromString(t, options, configData)
-	KubectlApplyFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
 
-	jobs := ListJobs(t, options, metav1.ListOptions{})
-	require.Equal(t, len(jobs), 1)
+	configData := fmt.Sprintf(exampleJobYAMLTemplate, uniqueID, uniqueID)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	k8s.KubectlApplyFromString(t, options, configData)
+
+	jobs := k8s.ListJobs(t, options, metav1.ListOptions{})
+	require.Len(t, jobs, 1)
 	job := jobs[0]
-	require.Equal(t, job.Name, "pi-job")
+	require.Equal(t, "pi-job", job.Name)
 	require.Equal(t, job.Namespace, uniqueID)
 }
 
 func TestGetJobEReturnsErrorForNonExistantJob(t *testing.T) {
 	t.Parallel()
 
-	options := NewKubectlOptions("", "", "default")
-	_, err := GetJobE(t, options, "pi-job")
+	options := k8s.NewKubectlOptions("", "", "default")
+	_, err := k8s.GetJobE(t, options, "pi-job")
 	require.Error(t, err)
 }
 
 func TestGetJobEReturnsCorrectJobInCorrectNamespace(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_JOB_YAML_TEMPLATE, uniqueID, uniqueID)
-	defer KubectlDeleteFromString(t, options, configData)
-	KubectlApplyFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
 
-	job := GetJob(t, options, "pi-job")
-	require.Equal(t, job.Name, "pi-job")
+	configData := fmt.Sprintf(exampleJobYAMLTemplate, uniqueID, uniqueID)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	k8s.KubectlApplyFromString(t, options, configData)
+
+	job := k8s.GetJob(t, options, "pi-job")
+	require.Equal(t, "pi-job", job.Name)
 	require.Equal(t, job.Namespace, uniqueID)
 }
 
 func TestWaitUntilJobSucceedReturnsSuccessfully(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_JOB_YAML_TEMPLATE, uniqueID, uniqueID)
-	defer KubectlDeleteFromString(t, options, configData)
-	KubectlApplyFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
 
-	WaitUntilJobSucceed(t, options, "pi-job", 60, 1*time.Second)
+	configData := fmt.Sprintf(exampleJobYAMLTemplate, uniqueID, uniqueID)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	k8s.KubectlApplyFromString(t, options, configData)
+
+	k8s.WaitUntilJobSucceed(t, options, "pi-job", 60, 1*time.Second)
 }
 
 func TestIsJobSucceeded(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		title          string
 		job            *batchv1.Job
+		title          string
 		expectedResult bool
 	}{
 		{
@@ -122,13 +132,40 @@ func TestIsJobSucceeded(t *testing.T) {
 		tc := tc
 		t.Run(tc.title, func(t *testing.T) {
 			t.Parallel()
-			actualResult := IsJobSucceeded(tc.job)
+
+			actualResult := k8s.IsJobSucceeded(tc.job)
 			require.Equal(t, tc.expectedResult, actualResult)
 		})
 	}
 }
 
-const EXAMPLE_JOB_YAML_TEMPLATE = `---
+func TestCreateJobFromCronJobReturnsCreatedJob(t *testing.T) {
+	t.Parallel()
+
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
+
+	configData := fmt.Sprintf(exampleCronJobYAMLTemplate, uniqueID, uniqueID)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	k8s.KubectlApplyFromString(t, options, configData)
+
+	newJobName := "pi-copied-job"
+	job := k8s.CreateJobFromCronJob(t, options, "pi-cronjob", newJobName)
+	require.NotNil(t, job)
+	assert.Equal(t, job.Namespace, uniqueID)
+	assert.Equal(t, job.Name, newJobName)
+}
+
+func TestCreateJobFromCronJobEReturnsErrorForNonExistentCronJob(t *testing.T) {
+	t.Parallel()
+
+	options := k8s.NewKubectlOptions("", "", "default")
+	_, err := k8s.CreateJobFromCronJobE(t, options, "non-existent-cronjob", "new-job-name")
+	require.Error(t, err)
+}
+
+const exampleJobYAMLTemplate = `---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -144,8 +181,35 @@ spec:
     spec:
       containers:
       - name: pi
-        image: perl
+        image: "perl:5.34.1"
         command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]
       restartPolicy: Never
   backoffLimit: 4
+`
+
+const exampleCronJobYAMLTemplate = `---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: %s
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pi-cronjob
+  namespace: %s
+spec:
+  schedule: "* 1 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 4
+      template:
+        spec:
+          containers:
+          - name: pi
+            image: "perl:5.34.1"
+            command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+          restartPolicy: Never
 `

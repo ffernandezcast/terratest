@@ -1,11 +1,48 @@
-package environment
+package environment_test
 
 import (
-	"os"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/environment"
 	"github.com/stretchr/testify/assert"
 )
+
+// MockT is used to test that the function under test will fail the test under certain circumstances.
+type MockT struct {
+	Failed bool
+}
+
+func (t *MockT) Fail() {
+	t.Failed = true
+}
+
+func (t *MockT) FailNow() {
+	t.Failed = true
+}
+
+func (t *MockT) Error(args ...any) {
+	t.Failed = true
+}
+
+func (t *MockT) Errorf(format string, args ...any) {
+	t.Failed = true
+}
+
+func (t *MockT) Fatal(args ...any) {
+	t.Failed = true
+}
+
+func (t *MockT) Fatalf(format string, args ...any) {
+	t.Failed = true
+}
+
+func (t *MockT) Helper() {}
+
+func (t *MockT) Name() string {
+	return "mockT"
+}
+
+// End MockT
 
 var envvarList = []string{
 	"TERRATEST_TEST_ENVIRONMENT",
@@ -13,22 +50,37 @@ var envvarList = []string{
 	"TERRATESTENVIRONMENT",
 }
 
+//nolint:paralleltest // These tests manipulate env vars and cannot run in parallel.
 func TestGetFirstNonEmptyEnvVarOrEmptyStringChecksInOrder(t *testing.T) {
-	// These tests can not run in parallel, since they manipulate env vars
-	// DO NOT ADD THIS: t.Parallel()
+	t.Setenv("TERRATESTTESTENVIRONMENT", "test")
+	t.Setenv("TERRATESTENVIRONMENT", "circleCI")
 
-	os.Setenv("TERRATESTTESTENVIRONMENT", "test")
-	os.Setenv("TERRATESTENVIRONMENT", "circleCI")
-	defer os.Setenv("TERRATESTTESTENVIRONMENT", "")
-	defer os.Setenv("TERRATESTENVIRONMENT", "")
-	value := GetFirstNonEmptyEnvVarOrEmptyString(t, envvarList)
-	assert.Equal(t, value, "test")
+	value := environment.GetFirstNonEmptyEnvVarOrEmptyString(t, envvarList)
+	assert.Equal(t, "test", value)
 }
 
+//nolint:paralleltest // These tests manipulate env vars and cannot run in parallel.
 func TestGetFirstNonEmptyEnvVarOrEmptyStringReturnsEmpty(t *testing.T) {
-	// These tests can not run in parallel, since they manipulate env vars
-	// DO NOT ADD THIS: t.Parallel()
+	value := environment.GetFirstNonEmptyEnvVarOrEmptyString(t, envvarList)
+	assert.Empty(t, value)
+}
 
-	value := GetFirstNonEmptyEnvVarOrEmptyString(t, envvarList)
-	assert.Equal(t, value, "")
+//nolint:paralleltest // These tests manipulate env vars and cannot run in parallel.
+func TestRequireEnvVarFails(t *testing.T) {
+	envVarName := "TERRATESTTESTENVIRONMENT"
+	mockT := new(MockT)
+
+	// Make sure the check fails when env var is not set
+	environment.RequireEnvVar(mockT, envVarName)
+	assert.True(t, mockT.Failed)
+}
+
+//nolint:paralleltest // These tests manipulate env vars and cannot run in parallel.
+func TestRequireEnvVarPasses(t *testing.T) {
+	envVarName := "TERRATESTTESTENVIRONMENT"
+
+	// Make sure the check passes when env var is set
+	t.Setenv(envVarName, "test")
+
+	environment.RequireEnvVar(t, envVarName)
 }

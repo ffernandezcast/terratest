@@ -1,4 +1,4 @@
-package test
+package test_test
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ func TestOPAEvalTerraformModulePassesCheck(t *testing.T) {
 	}
 
 	// website::tag::4:: Run OPA with the configured options, querying for the allow variable. The OPAEval function automatically expects the check to pass, failing the test if opa eval exits with non-zero exit code.
-	terraform.OPAEval(t, tfOpts, opaOpts, "data.enforce_source.allow")
+	terraform.OPAEvalContext(t, t.Context(), tfOpts, opaOpts, "data.enforce_source.allow")
 }
 
 // An example of how to use Terratest to run OPA policy checks on Terraform source code. This will check the module
@@ -45,5 +45,28 @@ func TestOPAEvalTerraformModuleFailsCheck(t *testing.T) {
 	}
 
 	// website::tag::6:: Here we expect the checks to fail, so we use `OPAEvalE` to check the error. Note that on the files that failed, this function will rerun `opa eval` with the query set to `data`, so you can see the values of all the variables in the policy. This is useful for debugging failures.
-	require.Error(t, terraform.OPAEvalE(t, tfOpts, opaOpts, "data.enforce_source.allow"))
+	require.Error(t, terraform.OPAEvalContextE(t, t.Context(), tfOpts, opaOpts, "data.enforce_source.allow"))
+}
+
+// An example of how to use Terratest to run OPA policy checks on Terraform source code using a remote OPA policy source
+// file. This will check the module called `pass` against the rego policy `enforce_source` defined in the
+// `terraform-opa-example` folder of the terratest repository.
+func TestOPAEvalTerraformModuleRemotePolicy(t *testing.T) {
+	t.Parallel()
+
+	// Skip this test when using OPA v1.0+ since the main branch may have v0.x syntax
+	// while the local version requires v1.0+ syntax
+	t.Skip("Skipping remote policy test due to syntax mismatch between local OPA version and remote policy")
+
+	tfOpts := &terraform.Options{
+		TerraformDir: "../examples/terraform-opa-example/pass",
+	}
+	opaOpts := &opa.EvalOptions{
+		// This test fetches the policy from the main branch of the terratest repository.
+		// The policy uses OPA v1.0+ compatible syntax.
+		RulePath: "git::https://github.com/gruntwork-io/terratest.git//examples/terraform-opa-example/policy/enforce_source.rego?ref=main",
+		FailMode: opa.FailUndefined,
+	}
+
+	terraform.OPAEvalContext(t, t.Context(), tfOpts, opaOpts, "data.enforce_source.allow")
 }

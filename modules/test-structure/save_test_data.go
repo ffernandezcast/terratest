@@ -1,9 +1,7 @@
-package test_structure
+package test_structure //nolint:staticcheck // package name determined by directory
 
 import (
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -21,7 +19,14 @@ import (
 // SaveTerraformOptions serializes and saves TerraformOptions into the given folder. This allows you to create TerraformOptions during setup
 // and to reuse that TerraformOptions later during validation and teardown.
 func SaveTerraformOptions(t testing.TestingT, testFolder string, terraformOptions *terraform.Options) {
-	SaveTestData(t, formatTerraformOptionsPath(testFolder), terraformOptions)
+	SaveTestData(t, formatTerraformOptionsPath(testFolder), true, terraformOptions)
+}
+
+// SaveTerraformOptionsIfNotPresent serializes and saves TerraformOptions into the given folder if the file does not exist or the json is
+// empty. This allows you to create TerraformOptions during setup and to reuse that TerraformOptions later during validation and teardown,
+// but will prevent overwritting the contents and potentially duplicating resources.
+func SaveTerraformOptionsIfNotPresent(t testing.TestingT, testFolder string, terraformOptions *terraform.Options) {
+	SaveTestData(t, formatTerraformOptionsPath(testFolder), false, terraformOptions)
 }
 
 // LoadTerraformOptions loads and unserializes TerraformOptions from the given folder. This allows you to reuse a TerraformOptions that was
@@ -29,6 +34,7 @@ func SaveTerraformOptions(t testing.TestingT, testFolder string, terraformOption
 func LoadTerraformOptions(t testing.TestingT, testFolder string) *terraform.Options {
 	var terraformOptions terraform.Options
 	LoadTestData(t, formatTerraformOptionsPath(testFolder), &terraformOptions)
+
 	return &terraformOptions
 }
 
@@ -40,7 +46,7 @@ func formatTerraformOptionsPath(testFolder string) string {
 // SavePackerOptions serializes and saves PackerOptions into the given folder. This allows you to create PackerOptions during setup
 // and to reuse that PackerOptions later during validation and teardown.
 func SavePackerOptions(t testing.TestingT, testFolder string, packerOptions *packer.Options) {
-	SaveTestData(t, formatPackerOptionsPath(testFolder), packerOptions)
+	SaveTestData(t, formatPackerOptionsPath(testFolder), true, packerOptions)
 }
 
 // LoadPackerOptions loads and unserializes PackerOptions from the given folder. This allows you to reuse a PackerOptions that was
@@ -48,6 +54,7 @@ func SavePackerOptions(t testing.TestingT, testFolder string, packerOptions *pac
 func LoadPackerOptions(t testing.TestingT, testFolder string) *packer.Options {
 	var packerOptions packer.Options
 	LoadTestData(t, formatPackerOptionsPath(testFolder), &packerOptions)
+
 	return &packerOptions
 }
 
@@ -59,7 +66,7 @@ func formatPackerOptionsPath(testFolder string) string {
 // SaveEc2KeyPair serializes and saves an Ec2KeyPair into the given folder. This allows you to create an Ec2KeyPair during setup
 // and to reuse that Ec2KeyPair later during validation and teardown.
 func SaveEc2KeyPair(t testing.TestingT, testFolder string, keyPair *aws.Ec2Keypair) {
-	SaveTestData(t, formatEc2KeyPairPath(testFolder), keyPair)
+	saveTestData(t, formatEc2KeyPairPath(testFolder), true, keyPair, false)
 }
 
 // LoadEc2KeyPair loads and unserializes an Ec2KeyPair from the given folder. This allows you to reuse an Ec2KeyPair that was
@@ -67,6 +74,7 @@ func SaveEc2KeyPair(t testing.TestingT, testFolder string, keyPair *aws.Ec2Keypa
 func LoadEc2KeyPair(t testing.TestingT, testFolder string) *aws.Ec2Keypair {
 	var keyPair aws.Ec2Keypair
 	LoadTestData(t, formatEc2KeyPairPath(testFolder), &keyPair)
+
 	return &keyPair
 }
 
@@ -75,29 +83,46 @@ func formatEc2KeyPairPath(testFolder string) string {
 	return FormatTestDataPath(testFolder, "Ec2KeyPair.json")
 }
 
-// SaveSshKeyPair serializes and saves an SshKeyPair into the given folder. This allows you to create an SshKeyPair during setup
-// and to reuse that SshKeyPair later during validation and teardown.
-func SaveSshKeyPair(t testing.TestingT, testFolder string, keyPair *ssh.KeyPair) {
-	SaveTestData(t, formatSshKeyPairPath(testFolder), keyPair)
+// SaveSSHKeyPair serializes and saves an SSH key pair into the given folder. This allows you to create an SSH key pair
+// during setup and to reuse that key pair later during validation and teardown.
+func SaveSSHKeyPair(t testing.TestingT, testFolder string, keyPair *ssh.KeyPair) {
+	SaveTestData(t, formatSSHKeyPairPath(testFolder), true, keyPair)
 }
 
-// LoadSshKeyPair loads and unserializes an SshKeyPair from the given folder. This allows you to reuse an SshKeyPair that was
-// created during an earlier setup step in later validation and teardown steps.
-func LoadSshKeyPair(t testing.TestingT, testFolder string) *ssh.KeyPair {
+// LoadSSHKeyPair loads and unserializes an SSH key pair from the given folder. This allows you to reuse an SSH key pair
+// that was created during an earlier setup step in later validation and teardown steps.
+func LoadSSHKeyPair(t testing.TestingT, testFolder string) *ssh.KeyPair {
 	var keyPair ssh.KeyPair
-	LoadTestData(t, formatSshKeyPairPath(testFolder), &keyPair)
+	LoadTestData(t, formatSSHKeyPairPath(testFolder), &keyPair)
+
 	return &keyPair
 }
 
-// formatSshKeyPairPath formats a path to save an SshKeyPair in the given folder.
-func formatSshKeyPairPath(testFolder string) string {
+// SaveSshKeyPair serializes and saves an SSH key pair into the given folder. This allows you to create an SSH key pair
+// during setup and to reuse that key pair later during validation and teardown.
+//
+// Deprecated: Use [SaveSSHKeyPair] instead.
+func SaveSshKeyPair(t testing.TestingT, testFolder string, keyPair *ssh.KeyPair) { //nolint:staticcheck,revive // preserving existing function name
+	SaveSSHKeyPair(t, testFolder, keyPair)
+}
+
+// LoadSshKeyPair loads and unserializes an SSH key pair from the given folder. This allows you to reuse an SSH key pair
+// that was created during an earlier setup step in later validation and teardown steps.
+//
+// Deprecated: Use [LoadSSHKeyPair] instead.
+func LoadSshKeyPair(t testing.TestingT, testFolder string) *ssh.KeyPair { //nolint:staticcheck,revive // preserving existing function name
+	return LoadSSHKeyPair(t, testFolder)
+}
+
+// formatSSHKeyPairPath formats a path to save an SSH key pair in the given folder.
+func formatSSHKeyPairPath(testFolder string) string {
 	return FormatTestDataPath(testFolder, "SshKeyPair.json")
 }
 
 // SaveKubectlOptions serializes and saves KubectlOptions into the given folder. This allows you to create a KubectlOptions during setup
 // and reuse that KubectlOptions later during validation and teardown.
 func SaveKubectlOptions(t testing.TestingT, testFolder string, kubectlOptions *k8s.KubectlOptions) {
-	SaveTestData(t, formatKubectlOptionsPath(testFolder), kubectlOptions)
+	SaveTestData(t, formatKubectlOptionsPath(testFolder), true, kubectlOptions)
 }
 
 // LoadKubectlOptions loads and unserializes a KubectlOptions from the given folder. This allows you to reuse a KubectlOptions that was
@@ -105,6 +130,7 @@ func SaveKubectlOptions(t testing.TestingT, testFolder string, kubectlOptions *k
 func LoadKubectlOptions(t testing.TestingT, testFolder string) *k8s.KubectlOptions {
 	var kubectlOptions k8s.KubectlOptions
 	LoadTestData(t, formatKubectlOptionsPath(testFolder), &kubectlOptions)
+
 	return &kubectlOptions
 }
 
@@ -117,7 +143,7 @@ func formatKubectlOptionsPath(testFolder string) string {
 // values during one stage -- each with a unique name -- and to reuse those values during later stages.
 func SaveString(t testing.TestingT, testFolder string, name string, val string) {
 	path := formatNamedTestDataPath(testFolder, name)
-	SaveTestData(t, path, val)
+	SaveTestData(t, path, true, val)
 }
 
 // LoadString loads and unserializes a uniquely named string value from the given folder. This allows you to reuse one or more string
@@ -125,6 +151,7 @@ func SaveString(t testing.TestingT, testFolder string, name string, val string) 
 func LoadString(t testing.TestingT, testFolder string, name string) string {
 	var val string
 	LoadTestData(t, formatNamedTestDataPath(testFolder, name), &val)
+
 	return val
 }
 
@@ -132,7 +159,7 @@ func LoadString(t testing.TestingT, testFolder string, name string) string {
 // values during one stage -- each with a unique name -- and to reuse those values during later stages.
 func SaveInt(t testing.TestingT, testFolder string, name string, val int) {
 	path := formatNamedTestDataPath(testFolder, name)
-	SaveTestData(t, path, val)
+	SaveTestData(t, path, true, val)
 }
 
 // LoadInt loads a uniquely named int value from the given folder. This allows you to reuse one or more int
@@ -140,6 +167,7 @@ func SaveInt(t testing.TestingT, testFolder string, name string, val int) {
 func LoadInt(t testing.TestingT, testFolder string, name string) int {
 	var val int
 	LoadTestData(t, formatNamedTestDataPath(testFolder, name), &val)
+
 	return val
 }
 
@@ -158,22 +186,23 @@ func LoadArtifactID(t testing.TestingT, testFolder string) string {
 // SaveAmiId serializes and saves an AMI ID into the given folder. This allows you to build an AMI during setup and to reuse that
 // AMI later during validation and teardown.
 //
-// Deprecated: Use SaveArtifactID instead.
-func SaveAmiId(t testing.TestingT, testFolder string, amiId string) {
+// Deprecated: Use [SaveArtifactID] instead.
+func SaveAmiId(t testing.TestingT, testFolder string, amiId string) { //nolint:staticcheck,revive // preserving existing function name
 	SaveString(t, testFolder, "AMI", amiId)
 }
 
 // LoadAmiId loads and unserializes an AMI ID from the given folder. This allows you to reuse an AMI  that was created during an
 // earlier setup step in later validation and teardown steps.
 //
-// Deprecated: Use LoadArtifactID instead.
-func LoadAmiId(t testing.TestingT, testFolder string) string {
+// Deprecated: Use [LoadArtifactID] instead.
+func LoadAmiId(t testing.TestingT, testFolder string) string { //nolint:staticcheck,revive // preserving existing function name
 	return LoadString(t, testFolder, "AMI")
 }
 
 // formatNamedTestDataPath formats a path to save an arbitrary named value in the given folder.
 func formatNamedTestDataPath(testFolder string, name string) string {
-	filename := fmt.Sprintf("%s.json", name)
+	filename := name + ".json"
+
 	return FormatTestDataPath(testFolder, filename)
 }
 
@@ -183,12 +212,29 @@ func FormatTestDataPath(testFolder string, filename string) string {
 }
 
 // SaveTestData serializes and saves a value used at test time to the given path. This allows you to create some sort of test data
-// (e.g., TerraformOptions) during setup and to reuse this data later during validation and teardown.
-func SaveTestData(t testing.TestingT, path string, value interface{}) {
-	logger.Logf(t, "Storing test data in %s so it can be reused later", path)
+// (e.g., TerraformOptions) during setup and to reuse this data later during validation and teardown. If `overwrite` is `true`,
+// any contents that exist in the file found at `path` will be overwritten. This has the potential for causing duplicated resources
+// and should be used with caution. If `overwrite` is `false`, the save will be skipped and a warning will be logged.
+func SaveTestData(t testing.TestingT, path string, overwrite bool, value interface{}) {
+	saveTestData(t, path, overwrite, value, true)
+}
+
+// saveTestData serializes and saves a value used at test time to the given path. This allows you to create some sort of test data
+// (e.g., TerraformOptions) during setup and to reuse this data later during validation and teardown. If `overwrite` is `true`,
+// any contents that exist in the file found at `path` will be overwritten. This has the potential for causing duplicated resources
+// and should be used with caution. If `overwrite` is `false`, the save will be skipped and a warning will be logged.
+// If `loggedVal` is `true`, the value will be logged as JSON.
+func saveTestData(t testing.TestingT, path string, overwrite bool, value interface{}, loggedVal bool) {
+	logger.Default.Logf(t, "Storing test data in %s so it can be reused later", path)
 
 	if IsTestDataPresent(t, path) {
-		logger.Logf(t, "[WARNING] The named test data at path %s is non-empty. Save operation will overwrite existing value with \"%v\".\n.", path, value)
+		if overwrite {
+			logger.Default.Logf(t, "[WARNING] The named test data at path %s is non-empty. Save operation will overwrite existing value with \"%v\".\n.", path, value)
+		} else {
+			logger.Default.Logf(t, "[WARNING] The named test data at path %s is non-empty. Skipping save operation to prevent overwriting existing value with \"%v\".\n.", path, value)
+
+			return
+		}
 	}
 
 	bytes, err := json.Marshal(value)
@@ -196,14 +242,17 @@ func SaveTestData(t testing.TestingT, path string, value interface{}) {
 		t.Fatalf("Failed to convert value %s to JSON: %v", path, err)
 	}
 
-	logger.Logf(t, "Marshalled JSON: %s", string(bytes))
+	if loggedVal {
+		logger.Default.Logf(t, "Marshalled JSON: %s", string(bytes))
+	}
 
 	parentDir := filepath.Dir(path)
-	if err := os.MkdirAll(parentDir, 0777); err != nil {
+
+	if err := os.MkdirAll(parentDir, 0o755); err != nil { //nolint:mnd // standard directory permissions
 		t.Fatalf("Failed to create folder %s: %v", parentDir, err)
 	}
 
-	if err := ioutil.WriteFile(path, bytes, 0644); err != nil {
+	if err := os.WriteFile(path, bytes, 0o644); err != nil { //nolint:mnd // standard file permissions
 		t.Fatalf("Failed to save value %s: %v", path, err)
 	}
 }
@@ -212,9 +261,9 @@ func SaveTestData(t testing.TestingT, path string, value interface{}) {
 // value will be deserialized. This allows you to reuse some sort of test data (e.g., TerraformOptions) from earlier
 // setup steps in later validation and teardown steps.
 func LoadTestData(t testing.TestingT, path string, value interface{}) {
-	logger.Logf(t, "Loading test data from %s", path)
+	logger.Default.Logf(t, "Loading test data from %s", path)
 
-	bytes, err := ioutil.ReadFile(path)
+	bytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("Failed to load value from %s: %v", path, err)
 	}
@@ -230,26 +279,26 @@ func IsTestDataPresent(t testing.TestingT, path string) bool {
 	if err != nil {
 		t.Fatalf("Failed to load test data from %s due to unexpected error: %v", path, err)
 	}
+
 	if !exists {
 		return false
 	}
 
-	bytes, err := ioutil.ReadFile(path)
-
+	bytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("Failed to load test data from %s due to unexpected error: %v", path, err)
 	}
 
-	if isEmptyJSON(t, bytes) {
+	if IsEmptyJSON(t, bytes) {
 		return false
 	}
 
 	return true
 }
 
-// isEmptyJSON returns true if the given bytes are empty, or in a valid JSON format that can reasonably be considered empty.
+// IsEmptyJSON returns true if the given bytes are empty, or in a valid JSON format that can reasonably be considered empty.
 // The types used are based on the type possibilities listed at https://golang.org/src/encoding/json/decode.go?s=4062:4110#L51
-func isEmptyJSON(t testing.TestingT, bytes []byte) bool {
+func IsEmptyJSON(t testing.TestingT, bytes []byte) bool {
 	var value interface{}
 
 	if len(bytes) == 0 {
@@ -295,12 +344,13 @@ func isEmptyJSON(t testing.TestingT, bytes []byte) bool {
 // CleanupTestData cleans up the test data at the given path.
 func CleanupTestData(t testing.TestingT, path string) {
 	if files.FileExists(path) {
-		logger.Logf(t, "Cleaning up test data from %s", path)
+		logger.Default.Logf(t, "Cleaning up test data from %s", path)
+
 		if err := os.Remove(path); err != nil {
 			t.Fatalf("Failed to clean up file at %s: %v", path, err)
 		}
 	} else {
-		logger.Logf(t, "%s does not exist. Nothing to cleanup.", path)
+		logger.Default.Logf(t, "%s does not exist. Nothing to cleanup.", path)
 	}
 }
 
@@ -314,18 +364,23 @@ func CleanupTestDataFolder(t testing.TestingT, path string) {
 // CleanupTestDataFolderE cleans up the .test-data folder inside the given folder.
 func CleanupTestDataFolderE(t testing.TestingT, path string) error {
 	path = filepath.Join(path, ".test-data")
+
 	exists, err := files.FileExistsE(path)
 	if err != nil {
-		logger.Logf(t, "Failed to clean up test data folder at %s: %v", path, err)
+		logger.Default.Logf(t, "Failed to clean up test data folder at %s: %v", path, err)
+
 		return err
 	}
 
 	if !exists {
-		logger.Logf(t, "%s does not exist. Nothing to cleanup.", path)
+		logger.Default.Logf(t, "%s does not exist. Nothing to cleanup.", path)
+
 		return nil
 	}
+
 	if err := os.RemoveAll(path); err != nil {
-		logger.Logf(t, "Failed to clean up test data folder at %s: %v", path, err)
+		logger.Default.Logf(t, "Failed to clean up test data folder at %s: %v", path, err)
+
 		return err
 	}
 

@@ -1,3 +1,4 @@
+//go:build kubeall || helm
 // +build kubeall helm
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests, and further differentiate helm
@@ -5,15 +6,20 @@
 // helm can overload the minikube system and thus interfere with the other kubernetes tests. To avoid overloading the
 // system, we run the kubernetes tests and helm tests separately from the others.
 
-package helm
+package helm_test
 
 import (
 	"crypto/tls"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/gruntwork-io/terratest/modules/helm"
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -26,63 +32,70 @@ func TestRemoteChartInstallUpgradeRollback(t *testing.T) {
 	namespaceName := fmt.Sprintf(
 		"%s-%s",
 		strings.ToLower(t.Name()),
-		strings.ToLower(random.UniqueId()),
+		strings.ToLower(random.UniqueID()),
 	)
 
 	// Use default kubectl options to create a new namespace for this test, and then update the namespace for kubectl
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
-	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
 
-	// Override service type to node port
-	options := &Options{
+	k8s.CreateNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+
+	// Override service type to node port and disable PDB (requires policy/v1 API
+	// which may not be available on older k8s clusters)
+	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: map[string]string{
 			"service.type": "NodePort",
+			"pdb.create":   "false",
 		},
+		Version: remoteChartVersion,
 	}
 
 	// Add the stable repo under a random name so as not to touch existing repo configs
-	uniqueName := strings.ToLower(fmt.Sprintf("terratest-%s", random.UniqueId()))
-	defer RemoveRepo(t, options, uniqueName)
-	AddRepo(t, options, uniqueName, "https://charts.helm.sh/stable")
-	helmChart := fmt.Sprintf("%s/chartmuseum", uniqueName)
+	uniqueName := strings.ToLower("terratest-" + random.UniqueID())
+	defer helm.RemoveRepo(t, options, uniqueName)
+
+	helm.AddRepo(t, options, uniqueName, remoteChartSource)
+	helmChart := fmt.Sprintf("%s/%s", uniqueName, remoteChartName)
 
 	// Generate a unique release name so we can defer the delete before installing
 	releaseName := fmt.Sprintf(
-		"chartmuseum-%s",
-		strings.ToLower(random.UniqueId()),
+		"%s-%s",
+		remoteChartName, strings.ToLower(random.UniqueID()),
 	)
-	defer Delete(t, options, releaseName, true)
-	Install(t, options, helmChart, releaseName)
+	defer helm.Delete(t, options, releaseName, true)
+
+	helm.Install(t, options, helmChart, releaseName)
 	waitForRemoteChartPods(t, kubectlOptions, releaseName, 1)
 
 	// Setting replica count to 2 to check the upgrade functionality.
-	// After successful upgrade , the count of pods should be equal to 2.
+	// After successful upgrade, the count of pods should be equal to 2.
 	options.SetValues = map[string]string{
 		"replicaCount": "2",
 		"service.type": "NodePort",
+		"pdb.create":   "false",
 	}
 	// Test that passing extra arguments doesn't error, by changing default timeout
-	options.ExtraArgs = map[string][]string{"upgrade": []string{"--timeout", "5m1s"}}
+	options.ExtraArgs = map[string][]string{"upgrade": {"--timeout", "5m1s"}}
 	options.ExtraArgs["rollback"] = []string{"--timeout", "5m1s"}
-	Upgrade(t, options, helmChart, releaseName)
+	helm.Upgrade(t, options, helmChart, releaseName)
 	waitForRemoteChartPods(t, kubectlOptions, releaseName, 2)
 
 	// Verify service is accessible. Wait for it to become available and then hit the endpoint.
-	// Service name is RELEASE_NAME-CHART_NAME
-	serviceName := fmt.Sprintf("%s-chartmuseum", releaseName)
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 10, 1*time.Second)
-	service := k8s.GetService(t, kubectlOptions, serviceName)
-	endpoint := k8s.GetServiceEndpoint(t, kubectlOptions, service, 8080)
+	serviceName := releaseName
+	k8s.WaitUntilServiceAvailableContext(t, t.Context(), kubectlOptions, serviceName, 10, 1*time.Second)
+	service := k8s.GetServiceContext(t, t.Context(), kubectlOptions, serviceName)
+	endpoint := k8s.GetServiceEndpointContext(t, t.Context(), kubectlOptions, service, 80)
 
 	// Setup a TLS configuration to submit with the helper, a blank struct is acceptable
 	tlsConfig := tls.Config{}
 
-	http_helper.HttpGetWithRetryWithCustomValidation(
+	http_helper.HTTPGetWithRetryWithCustomValidationContext(
 		t,
-		fmt.Sprintf("http://%s", endpoint),
+		t.Context(),
+		"http://"+endpoint,
 		&tlsConfig,
 		30,
 		10*time.Second,
@@ -92,6 +105,51 @@ func TestRemoteChartInstallUpgradeRollback(t *testing.T) {
 	)
 
 	// Finally, test rollback functionality. When rolling back, we should see the pods go back down to 1.
-	Rollback(t, options, releaseName, "")
+	helm.Rollback(t, options, releaseName, "")
 	waitForRemoteChartPods(t, kubectlOptions, releaseName, 1)
+}
+
+// Test deployment of helm chart with dependencies.
+func TestHelmDependencyUpgrade(t *testing.T) {
+	t.Parallel()
+
+	// Path to the helm chart with dependencies which we will test
+	helmChartPath, err := filepath.Abs("../../examples/helm-dependency-example")
+	require.NoError(t, err)
+
+	// Custom namespace name.
+	namespaceName := "helm-dependency-example-" + strings.ToLower(random.UniqueID())
+
+	// Setup the kubectl config and context. Here we choose to use the defaults, which is:
+	// - HOME/.kube/config for the kubectl config file
+	// - Current context of the kubectl config file
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	k8s.CreateNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+
+	// Helm chart deployment options.
+	options := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		SetValues: map[string]string{
+			"containerImageRepo":       "nginx",
+			"containerImageTag":        "1.15.8",
+			"basic.containerImageRepo": "nginx",
+			"basic.containerImageTag":  "1.15.8",
+		},
+		BuildDependencies: true,
+	}
+	// We generate a unique release name so that we can refer to after deployment.
+	// By doing so, we can schedule the delete call here so that at the end of the test, we run
+	// `helm delete RELEASE_NAME` to clean up any resources that were created.
+	releaseName := "helm-dependency-example-" + strings.ToLower(random.UniqueID())
+	defer helm.Delete(t, options, releaseName, true)
+
+	// Deploy the chart using `helm install`.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	// Verify that upgrade is working as expected.
+	err = helm.UpgradeE(t, options, helmChartPath, releaseName)
+	assert.NoError(t, err)
 }

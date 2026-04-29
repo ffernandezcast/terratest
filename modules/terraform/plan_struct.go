@@ -13,11 +13,6 @@ import (
 // Unlike the raw plan representation returned by terraform-json, this struct provides a map that maps the resource
 // addresses to the changes and planned values to make it easier to navigate the raw plan struct.
 type PlanStruct struct {
-	// The raw representation of the plan. See
-	// https://www.terraform.io/docs/internals/json-format.html#plan-representation for details on the structure of the
-	// plan output.
-	RawPlan tfjson.Plan
-
 	// A map that maps full resource addresses (e.g., module.foo.null_resource.test) to the planned values of that
 	// resource.
 	ResourcePlannedValuesMap map[string]*tfjson.StateResource
@@ -25,11 +20,16 @@ type PlanStruct struct {
 	// A map that maps full resource addresses (e.g., module.foo.null_resource.test) to the planned actions terraform
 	// will take on that resource.
 	ResourceChangesMap map[string]*tfjson.ResourceChange
+
+	// The raw representation of the plan. See
+	// https://www.terraform.io/docs/internals/json-format.html#plan-representation for details on the structure of the
+	// plan output.
+	RawPlan tfjson.Plan
 }
 
-// parsePlanJson takes in the json string representation of the terraform plan and returns a go struct representation
+// ParsePlanJSON takes in the json string representation of the terraform plan and returns a go struct representation
 // for easy introspection.
-func parsePlanJson(jsonStr string) (*PlanStruct, error) {
+func ParsePlanJSON(jsonStr string) (*PlanStruct, error) {
 	plan := &PlanStruct{}
 
 	if err := json.Unmarshal([]byte(jsonStr), &plan.RawPlan); err != nil {
@@ -38,6 +38,7 @@ func parsePlanJson(jsonStr string) (*PlanStruct, error) {
 
 	plan.ResourcePlannedValuesMap = parsePlannedValues(plan)
 	plan.ResourceChangesMap = parseResourceChanges(plan)
+
 	return plan, nil
 }
 
@@ -48,6 +49,7 @@ func parseResourceChanges(plan *PlanStruct) map[string]*tfjson.ResourceChange {
 	for _, change := range plan.RawPlan.ResourceChanges {
 		out[change.Address] = change
 	}
+
 	return out
 }
 
@@ -65,6 +67,7 @@ func parsePlannedValues(plan *PlanStruct) map[string]*tfjson.StateResource {
 		// No module resources, so return empty map.
 		return map[string]*tfjson.StateResource{}
 	}
+
 	return parseModulePlannedValues(rootModule)
 }
 
@@ -88,6 +91,7 @@ func parseModulePlannedValues(module *tfjson.StateModule) map[string]*tfjson.Sta
 			out[k] = v
 		}
 	}
+
 	return out
 }
 

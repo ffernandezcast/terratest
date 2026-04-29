@@ -2,100 +2,201 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"testing"
+	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2020-10-01/resources"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/gruntwork-io/terratest/modules/testing"
 	"github.com/stretchr/testify/require"
 )
 
-// ResourceGroupExists indicates whether a resource group exists within a subscription; otherwise false
+// ResourceGroupExistsContext indicates whether a resource group exists within a subscription; otherwise false.
 // This function would fail the test if there is an error.
-func ResourceGroupExists(t *testing.T, resourceGroupName string, subscriptionID string) bool {
-	result, err := ResourceGroupExistsE(resourceGroupName, subscriptionID)
+// The ctx parameter supports cancellation and timeouts.
+func ResourceGroupExistsContext(t testing.TestingT, ctx context.Context, resourceGroupName string, subscriptionID string) bool {
+	t.Helper()
+
+	result, err := ResourceGroupExistsContextE(ctx, resourceGroupName, subscriptionID)
 	require.NoError(t, err)
+
 	return result
 }
 
-// ResourceGroupExistsE indicates whether a resource group exists within a subscription
-func ResourceGroupExistsE(resourceGroupName, subscriptionID string) (bool, error) {
-	exists, err := GetResourceGroupE(resourceGroupName, subscriptionID)
+// ResourceGroupExistsContextE indicates whether a resource group exists within a subscription.
+// The ctx parameter supports cancellation and timeouts.
+func ResourceGroupExistsContextE(ctx context.Context, resourceGroupName, subscriptionID string) (bool, error) {
+	exists, err := GetResourceGroupContextE(ctx, resourceGroupName, subscriptionID)
 	if err != nil {
-		if ResourceNotFoundErrorExists(err) {
+		if resourceGroupNotFoundError(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return exists, nil
-
 }
 
-// GetResourceGroupE gets a resource group within a subscription
-func GetResourceGroupE(resourceGroupName, subscriptionID string) (bool, error) {
+// ResourceGroupExists indicates whether a resource group exists within a subscription; otherwise false.
+// This function would fail the test if there is an error.
+//
+// Deprecated: Use [ResourceGroupExistsContext] instead.
+func ResourceGroupExists(t testing.TestingT, resourceGroupName string, subscriptionID string) bool {
+	t.Helper()
 
-	rg, err := GetAResourceGroupE(resourceGroupName, subscriptionID)
+	return ResourceGroupExistsContext(t, context.Background(), resourceGroupName, subscriptionID)
+}
+
+// ResourceGroupExistsE indicates whether a resource group exists within a subscription.
+//
+// Deprecated: Use [ResourceGroupExistsContextE] instead.
+func ResourceGroupExistsE(resourceGroupName, subscriptionID string) (bool, error) {
+	return ResourceGroupExistsContextE(context.Background(), resourceGroupName, subscriptionID)
+}
+
+// GetResourceGroupContextE checks whether a resource group name matches the one retrieved from the subscription.
+// Azure resource group names are case-insensitive, so the comparison is performed with EqualFold.
+// The ctx parameter supports cancellation and timeouts.
+func GetResourceGroupContextE(ctx context.Context, resourceGroupName, subscriptionID string) (bool, error) {
+	rg, err := GetAResourceGroupContextE(ctx, resourceGroupName, subscriptionID)
 	if err != nil {
 		return false, err
 	}
-	return (resourceGroupName == *rg.Name), nil
+
+	if rg == nil || rg.Name == nil {
+		return false, nil
+	}
+
+	return strings.EqualFold(resourceGroupName, *rg.Name), nil
 }
 
-// GetResourceGroupClientE gets a resource group client in a subscription
-// TODO: remove in next version
-func GetResourceGroupClientE(subscriptionID string) (*resources.GroupsClient, error) {
-	subscriptionID, err := getTargetAzureSubscription(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	resourceGroupClient := resources.NewGroupsClient(subscriptionID)
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-	resourceGroupClient.Authorizer = *authorizer
-	return &resourceGroupClient, nil
+// GetResourceGroupE checks whether a resource group name matches the one retrieved from the subscription.
+//
+// Deprecated: Use [GetResourceGroupContextE] instead.
+func GetResourceGroupE(resourceGroupName, subscriptionID string) (bool, error) {
+	return GetResourceGroupContextE(context.Background(), resourceGroupName, subscriptionID)
 }
 
-// GetAResourceGroup returns a resource group within a subscription
+// GetAResourceGroupContext returns a resource group within a subscription.
 // This function would fail the test if there is an error.
-func GetAResourceGroup(t *testing.T, resourceGroupName string, subscriptionID string) *resources.Group {
-	rg, err := GetAResourceGroupE(resourceGroupName, subscriptionID)
+// The ctx parameter supports cancellation and timeouts.
+func GetAResourceGroupContext(t testing.TestingT, ctx context.Context, resourceGroupName string, subscriptionID string) *armresources.ResourceGroup {
+	t.Helper()
+
+	rg, err := GetAResourceGroupContextE(ctx, resourceGroupName, subscriptionID)
 	require.NoError(t, err)
+
 	return rg
 }
 
-// GetAResourceGroupE gets a resource group within a subscription
-func GetAResourceGroupE(resourceGroupName, subscriptionID string) (*resources.Group, error) {
-	client, err := CreateResourceGroupClientE(subscriptionID)
+// GetAResourceGroupContextE gets a resource group within a subscription.
+// The ctx parameter supports cancellation and timeouts.
+func GetAResourceGroupContextE(ctx context.Context, resourceGroupName, subscriptionID string) (*armresources.ResourceGroup, error) {
+	client, err := CreateResourceGroupClientContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
-	rg, err := client.Get(context.Background(), resourceGroupName)
-	if err != nil {
-		return nil, err
-	}
-	return &rg, nil
+	return GetAResourceGroupWithClient(ctx, client, resourceGroupName)
 }
 
-// ListResourceGroupsByTag returns a resource group list within a subscription based on a tag key
+// GetAResourceGroup returns a resource group within a subscription.
 // This function would fail the test if there is an error.
-func ListResourceGroupsByTag(t *testing.T, tag, subscriptionID string) []resources.Group {
-	rg, err := ListResourceGroupsByTagE(tag, subscriptionID)
+//
+// Deprecated: Use [GetAResourceGroupContext] instead.
+func GetAResourceGroup(t testing.TestingT, resourceGroupName string, subscriptionID string) *armresources.ResourceGroup {
+	t.Helper()
+
+	return GetAResourceGroupContext(t, context.Background(), resourceGroupName, subscriptionID)
+}
+
+// GetAResourceGroupE gets a resource group within a subscription.
+//
+// Deprecated: Use [GetAResourceGroupContextE] instead.
+func GetAResourceGroupE(resourceGroupName, subscriptionID string) (*armresources.ResourceGroup, error) {
+	return GetAResourceGroupContextE(context.Background(), resourceGroupName, subscriptionID)
+}
+
+// GetAResourceGroupWithClient gets a resource group using the provided ResourceGroupsClient.
+func GetAResourceGroupWithClient(ctx context.Context, client *armresources.ResourceGroupsClient, resourceGroupName string) (*armresources.ResourceGroup, error) {
+	resp, err := client.Get(ctx, resourceGroupName, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.ResourceGroup, nil
+}
+
+// ListResourceGroupsByTagContext returns a resource group list within a subscription based on a tag key.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListResourceGroupsByTagContext(t testing.TestingT, ctx context.Context, tag, subscriptionID string) []*armresources.ResourceGroup {
+	t.Helper()
+
+	rg, err := ListResourceGroupsByTagContextE(ctx, tag, subscriptionID)
 	require.NoError(t, err)
+
 	return rg
 }
 
-// ListResourceGroupsByTagE returns a resource group list within a subscription based on a tag key
-func ListResourceGroupsByTagE(tag string, subscriptionID string) ([]resources.Group, error) {
-	client, err := CreateResourceGroupClientE(subscriptionID)
+// ListResourceGroupsByTagContextE returns a resource group list within a subscription based on a tag key.
+// The ctx parameter supports cancellation and timeouts.
+func ListResourceGroupsByTagContextE(ctx context.Context, tag string, subscriptionID string) ([]*armresources.ResourceGroup, error) {
+	client, err := CreateResourceGroupClientContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
-	rg, err := client.List(context.Background(), fmt.Sprintf("tagName eq '%s'", tag), nil)
-	if err != nil {
-		return nil, err
+	return ListResourceGroupsByTagWithClient(ctx, client, tag)
+}
+
+// ListResourceGroupsByTag returns a resource group list within a subscription based on a tag key.
+// This function would fail the test if there is an error.
+//
+// Deprecated: Use [ListResourceGroupsByTagContext] instead.
+func ListResourceGroupsByTag(t testing.TestingT, tag, subscriptionID string) []*armresources.ResourceGroup {
+	t.Helper()
+
+	return ListResourceGroupsByTagContext(t, context.Background(), tag, subscriptionID)
+}
+
+// ListResourceGroupsByTagE returns a resource group list within a subscription based on a tag key.
+//
+// Deprecated: Use [ListResourceGroupsByTagContextE] instead.
+func ListResourceGroupsByTagE(tag string, subscriptionID string) ([]*armresources.ResourceGroup, error) {
+	return ListResourceGroupsByTagContextE(context.Background(), tag, subscriptionID)
+}
+
+// ListResourceGroupsByTagWithClient returns resource groups matching a tag key using the provided client.
+func ListResourceGroupsByTagWithClient(ctx context.Context, client *armresources.ResourceGroupsClient, tag string) ([]*armresources.ResourceGroup, error) {
+	filter := fmt.Sprintf("tagName eq '%s'", tag)
+	pager := client.NewListPager(&armresources.ResourceGroupsClientListOptions{
+		Filter: &filter,
+	})
+
+	var results []*armresources.ResourceGroup
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		results = append(results, page.ResourceGroupListResult.Value...)
 	}
-	return rg.Values(), nil
+
+	return results, nil
+}
+
+func resourceGroupNotFoundError(err error) bool {
+	if err != nil {
+		var azcoreErr *azcore.ResponseError
+		if errors.As(err, &azcoreErr) {
+			return azcoreErr.ErrorCode == "ResourceGroupNotFound"
+		}
+	}
+
+	return false
 }

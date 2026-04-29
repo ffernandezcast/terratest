@@ -1,13 +1,30 @@
 package k8s
 
 import (
+	"errors"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	networkingv1beta1 "k8s.io/api/networking/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// Sentinel errors for conditions that can be checked with errors.Is.
+var (
+	// ErrNoAvailableContexts is returned when there are no kubectl contexts remaining after deletion.
+	ErrNoAvailableContexts = errors.New("no available contexts remaining")
+
+	// ErrNoNodesAvailable is returned when the Kubernetes cluster reports no nodes.
+	ErrNoNodesAvailable = errors.New("no nodes available")
+
+	// ErrNotAllNodesReady is returned when not every node in the cluster is in the Ready state.
+	ErrNotAllNodesReady = errors.New("not all nodes ready")
+
+	// ErrNilPod is returned when a nil pod is passed to a function that requires a non-nil pod.
+	ErrNilPod = errors.New("cannot get port for pod which is nil")
 )
 
 // IngressNotAvailable is returned when a Kubernetes service is not yet available to accept traffic.
@@ -47,6 +64,8 @@ type DesiredNumberOfPodsNotCreated struct {
 }
 
 // Error is a simple function to return a formatted error message as a string
+//
+//nolint:gocritic // hugeParam: cannot change public function signature
 func (err DesiredNumberOfPodsNotCreated) Error() string {
 	return fmt.Sprintf("Desired number of pods (%d) matching filter %v not yet created", err.DesiredCount, err.Filter)
 }
@@ -61,6 +80,37 @@ func (err ServiceAccountTokenNotAvailable) Error() string {
 	return fmt.Sprintf("ServiceAccount %s does not have a token yet.", err.Name)
 }
 
+// DeploymentNotAvailable is returned when a Kubernetes deployment is not yet available to accept traffic.
+type DeploymentNotAvailable struct {
+	deploy *appsv1.Deployment
+}
+
+// Error is a simple function to return a formatted error message as a string
+func (err DeploymentNotAvailable) Error() string {
+	dc := getDeploymentCondition(err.deploy, appsv1.DeploymentProgressing)
+	if dc == nil {
+		return fmt.Sprintf(
+			"Deployment %s is not available, missing '%s' condition",
+			err.deploy.Name,
+			appsv1.DeploymentProgressing,
+		)
+	}
+
+	return fmt.Sprintf(
+		"Deployment %s is not available as '%s' condition indicates that the Deployment is not complete, status: %v, reason: %s, message: %s",
+		err.deploy.Name,
+		appsv1.DeploymentProgressing,
+		dc.Status,
+		dc.Reason,
+		dc.Message,
+	)
+}
+
+// NewDeploymentNotAvailableError returns a DeploymentNotAvailable struct when Kubernetes deems a deployment is not available
+func NewDeploymentNotAvailableError(deploy *appsv1.Deployment) DeploymentNotAvailable {
+	return DeploymentNotAvailable{deploy}
+}
+
 // PodNotAvailable is returned when a Kubernetes service is not yet available to accept traffic.
 type PodNotAvailable struct {
 	pod *corev1.Pod
@@ -68,10 +118,10 @@ type PodNotAvailable struct {
 
 // Error is a simple function to return a formatted error message as a string
 func (err PodNotAvailable) Error() string {
-	return fmt.Sprintf("Pod %s is not available", err.pod.Name)
+	return fmt.Sprintf("Pod %s is not available, reason: %s, message: %s", err.pod.Name, err.pod.Status.Reason, err.pod.Status.Message)
 }
 
-// NewPodNotAvailableError returnes a PodNotAvailable struct when Kubernetes deems a pod is not available
+// NewPodNotAvailableError returns a PodNotAvailable struct when Kubernetes deems a pod is not available
 func NewPodNotAvailableError(pod *corev1.Pod) PodNotAvailable {
 	return PodNotAvailable{pod}
 }
@@ -86,7 +136,7 @@ func (err JobNotSucceeded) Error() string {
 	return fmt.Sprintf("Job %s is not Succeeded", err.job.Name)
 }
 
-// NewJobNotSucceeded returnes a JobNotSucceeded when the status of the job is not Succeeded
+// NewJobNotSucceeded returns a JobNotSucceeded when the status of the job is not Succeeded
 func NewJobNotSucceeded(job *batchv1.Job) JobNotSucceeded {
 	return JobNotSucceeded{job}
 }
@@ -101,7 +151,7 @@ func (err ServiceNotAvailable) Error() string {
 	return fmt.Sprintf("Service %s is not available", err.service.Name)
 }
 
-// NewServiceNotAvailableError returnes a ServiceNotAvailable struct when Kubernetes deems a service is not available
+// NewServiceNotAvailableError returns a ServiceNotAvailable struct when Kubernetes deems a service is not available
 func NewServiceNotAvailableError(service *corev1.Service) ServiceNotAvailable {
 	return ServiceNotAvailable{service}
 }
@@ -132,9 +182,41 @@ func (err UnknownServicePort) Error() string {
 	return fmt.Sprintf("Port %d is not a part of the service %s", err.port, err.service.Name)
 }
 
-// NewUnknownServicePortError returns an UnknownServicePort struct when it is deemed that Kuberenetes does not know of the provided Service Port
+// NewUnknownServicePortError returns an UnknownServicePort struct when it is deemed that Kubernetes does not know of the provided Service Port
 func NewUnknownServicePortError(service *corev1.Service, port int32) UnknownServicePort {
 	return UnknownServicePort{service, port}
+}
+
+// PersistentVolumeNotInStatus is returned when a Kubernetes PersistentVolume is not in the expected status phase
+type PersistentVolumeNotInStatus struct {
+	pv            *corev1.PersistentVolume
+	pvStatusPhase *corev1.PersistentVolumePhase
+}
+
+// Error is a simple function to return a formatted error message as a string
+func (err PersistentVolumeNotInStatus) Error() string {
+	return fmt.Sprintf("Pv %s is not '%s'", err.pv.Name, *err.pvStatusPhase)
+}
+
+// NewPersistentVolumeNotInStatusError returns a PersistentVolumeNotInStatus struct when the given Persistent Volume is not in the expected status phase
+func NewPersistentVolumeNotInStatusError(pv *corev1.PersistentVolume, pvStatusPhase *corev1.PersistentVolumePhase) PersistentVolumeNotInStatus {
+	return PersistentVolumeNotInStatus{pv, pvStatusPhase}
+}
+
+// PersistentVolumeClaimNotInStatus is returned when a Kubernetes PersistentVolumeClaim is not in the expected status phase
+type PersistentVolumeClaimNotInStatus struct {
+	pvc            *corev1.PersistentVolumeClaim
+	pvcStatusPhase *corev1.PersistentVolumeClaimPhase
+}
+
+// Error is a simple function to return a formatted error message as a string
+func (err PersistentVolumeClaimNotInStatus) Error() string {
+	return fmt.Sprintf("PVC %s is not '%s'", err.pvc.Name, *err.pvcStatusPhase)
+}
+
+// NewPersistentVolumeClaimNotInStatusError returns a PersistentVolumeClaimNotInStatus struct when the given PersistentVolumeClaim is not in the expected status phase
+func NewPersistentVolumeClaimNotInStatusError(pvc *corev1.PersistentVolumeClaim, pvcStatusPhase *corev1.PersistentVolumeClaimPhase) PersistentVolumeClaimNotInStatus {
+	return PersistentVolumeClaimNotInStatus{pvc, pvcStatusPhase}
 }
 
 // NoNodesInKubernetes is returned when the Kubernetes cluster has no nodes registered.
@@ -180,13 +262,41 @@ func NewMalformedNodeIDError(node *corev1.Node) MalformedNodeID {
 	return MalformedNodeID{node}
 }
 
+// TargetPortNotFoundError is returned when a target port is not found in a service definition.
+type TargetPortNotFoundError struct {
+	ServiceName string
+	TargetPort  int
+}
+
+// Error returns a formatted error message as a string.
+func (err TargetPortNotFoundError) Error() string {
+	return fmt.Sprintf("target port %d not found in service %s definition", err.TargetPort, err.ServiceName)
+}
+
+// PortNotFoundInPodError is returned when a named port is not found in any container of a pod.
+type PortNotFoundInPodError struct {
+	PortName string
+	PodName  string
+}
+
+// Error returns a formatted error message as a string.
+func (err PortNotFoundInPodError) Error() string {
+	return fmt.Sprintf("could not find port %s in pod %s", err.PortName, err.PodName)
+}
+
 // JSONPathMalformedJSONErr is returned when the jsonpath unmarshal routine fails to parse the given JSON blob.
 type JSONPathMalformedJSONErr struct {
 	underlyingErr error
 }
 
+// Error returns a formatted error message as a string.
 func (err JSONPathMalformedJSONErr) Error() string {
 	return fmt.Sprintf("Error unmarshaling original json blob: %s", err.underlyingErr)
+}
+
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
+func (err JSONPathMalformedJSONErr) Unwrap() error {
+	return err.underlyingErr
 }
 
 // JSONPathMalformedJSONPathErr is returned when the jsonpath unmarshal routine fails to parse the given JSON path
@@ -195,8 +305,14 @@ type JSONPathMalformedJSONPathErr struct {
 	underlyingErr error
 }
 
+// Error returns a formatted error message as a string.
 func (err JSONPathMalformedJSONPathErr) Error() string {
 	return fmt.Sprintf("Error parsing json path: %s", err.underlyingErr)
+}
+
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
+func (err JSONPathMalformedJSONPathErr) Unwrap() error {
+	return err.underlyingErr
 }
 
 // JSONPathExtractJSONPathErr is returned when the jsonpath unmarshal routine fails to extract the given JSON path from
@@ -205,8 +321,14 @@ type JSONPathExtractJSONPathErr struct {
 	underlyingErr error
 }
 
+// Error returns a formatted error message as a string.
 func (err JSONPathExtractJSONPathErr) Error() string {
 	return fmt.Sprintf("Error extracting json path from blob: %s", err.underlyingErr)
+}
+
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
+func (err JSONPathExtractJSONPathErr) Unwrap() error {
+	return err.underlyingErr
 }
 
 // JSONPathMalformedJSONPathResultErr is returned when the jsonpath unmarshal routine fails to unmarshal the resulting
@@ -215,6 +337,27 @@ type JSONPathMalformedJSONPathResultErr struct {
 	underlyingErr error
 }
 
+// Error returns a formatted error message as a string.
 func (err JSONPathMalformedJSONPathResultErr) Error() string {
 	return fmt.Sprintf("Error unmarshaling json path output: %s", err.underlyingErr)
+}
+
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
+func (err JSONPathMalformedJSONPathResultErr) Unwrap() error {
+	return err.underlyingErr
+}
+
+// CronJobNotSucceeded is returned when a Kubernetes cron job didn't successfully schedule a job.
+type CronJobNotSucceeded struct {
+	cronJob *batchv1.CronJob
+}
+
+// Error format message for cron job error.
+func (err CronJobNotSucceeded) Error() string {
+	return fmt.Sprintf("CronJob %s failed to be scheduled.", err.cronJob.Name)
+}
+
+// NewCronJobNotSucceeded create error for case when CronJob didn't schedule a job.
+func NewCronJobNotSucceeded(cronJob *batchv1.CronJob) CronJobNotSucceeded {
+	return CronJobNotSucceeded{cronJob}
 }

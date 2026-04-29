@@ -1,0 +1,126 @@
+package terragrunt
+
+import (
+	"io"
+	"os"
+	"time"
+
+	"github.com/gruntwork-io/terratest/modules/logger"
+)
+
+// Key concepts:
+// - Options: Configure HOW the test framework executes tg (directories, retry logic, logging)
+// - TerragruntArgs: Global terragrunt flags (e.g., --log-level, --no-color)
+// - TerraformArgs: Command-specific OpenTofu/Terraform args (e.g., -upgrade for init, or the command itself for stack run)
+// - Use Options.TerragruntDir to specify WHERE to run tg
+//
+// Example:
+//
+//	ctx := t.Context()
+//
+//	// For init with OpenTofu/Terraform flags
+//	InitContextE(t, ctx, &Options{
+//	    TerragruntDir: "/path/to/config",
+//	    TerragruntArgs: []string{"--log-level", "info"},
+//	    TerraformArgs: []string{"-upgrade=true"},
+//	})
+//
+//	// For run-all with global flags
+//	ApplyAllContextE(t, ctx, &Options{
+//	    TerragruntDir: "/path/to/config",
+//	    TerragruntArgs: []string{"--no-color"},
+//	})
+//
+// Constants for test framework configuration and environment variables
+const (
+	DefaultTerragruntBinary = "terragrunt"
+	NonInteractiveFlag      = "--non-interactive"
+	TerragruntLogFormatKey  = "TG_LOG_FORMAT"
+	TerragruntLogCustomKey  = "TG_LOG_CUSTOM_FORMAT"
+	TerragruntNoTipsKey     = "TG_NO_TIPS"
+	DefaultLogFormat        = "key-value"
+	DefaultLogCustomFormat  = "%msg(color=disable)"
+)
+
+// Options represent the configuration options for tg test execution.
+//
+// This struct is divided into two clear categories:
+//
+// 1. TEST FRAMEWORK CONFIGURATION:
+//   - Controls HOW the test framework executes tg
+//   - Includes: binary paths, directories, retry logic, logging, environment
+//   - These are NOT passed as command-line arguments to tg
+//
+// 2. TG COMMAND ARGUMENTS:
+//   - TerragruntArgs: Global terragrunt flags (placed BEFORE the command)
+//   - TerraformArgs: Command-specific flags (placed AFTER the command)
+//   - These ARE passed directly to tg in the appropriate positions
+//
+// This separation eliminates confusion about which settings control the test
+// framework vs which become tg command-line arguments.
+type Options struct {
+	// Optional stdin to pass to OpenTofu/Terraform commands
+	Stdin io.Reader
+
+	// Test framework retry and error handling (NOT passed to tg command line)
+	RetryableTerraformErrors map[string]string // Retryable error patterns
+	EnvVars                  map[string]string // Environment variables for command execution
+	WarningsAsErrors         map[string]string // Warnings to treat as errors
+
+	// Test framework configuration (NOT passed to tg command line)
+	Logger *logger.Logger // Logger for command output
+
+	// Complex configuration that requires special formatting (NOT raw command-line args)
+	BackendConfig map[string]interface{} // Backend configuration (formatted specially)
+
+	// Test framework configuration (NOT passed to tg command line)
+	TerragruntBinary string // The tg binary to use (should be "terragrunt")
+	PluginDir        string // Plugin directory (formatted specially)
+	TerragruntDir    string // The directory containing the tg configuration
+
+	// Global terragrunt command-line flags (placed BEFORE the command)
+	// Example: []string{"--log-level", "info", "--no-color"}
+	TerragruntArgs []string
+
+	// Command-specific OpenTofu/Terraform flags (placed AFTER the command)
+	// Example: []string{"-upgrade=true"} for init, or []string{"plan"} for stack run
+	TerraformArgs []string
+
+	MaxRetries         int           // Maximum number of retries
+	TimeBetweenRetries time.Duration // Time between retries
+}
+
+// setTerragruntLogFormatting sets default log formatting and other env vars for tg
+// if they are not already set in options.EnvVars or OS environment vars
+func setTerragruntLogFormatting(options *Options) {
+	if options.EnvVars == nil {
+		options.EnvVars = make(map[string]string)
+	}
+
+	_, inOpts := options.EnvVars[TerragruntLogFormatKey]
+	if !inOpts {
+		_, inEnv := os.LookupEnv(TerragruntLogFormatKey)
+		if !inEnv {
+			// key-value format for tg logs to avoid colors and have plain form
+			// https://terragrunt.gruntwork.io/docs/reference/cli-options/#terragrunt-log-format
+			options.EnvVars[TerragruntLogFormatKey] = DefaultLogFormat
+		}
+	}
+
+	_, inOpts = options.EnvVars[TerragruntLogCustomKey]
+	if !inOpts {
+		_, inEnv := os.LookupEnv(TerragruntLogCustomKey)
+		if !inEnv {
+			options.EnvVars[TerragruntLogCustomKey] = DefaultLogCustomFormat
+		}
+	}
+
+	// Suppress tips for cleaner test output (v1.0.0+, ignored by older versions)
+	_, inOpts = options.EnvVars[TerragruntNoTipsKey]
+	if !inOpts {
+		_, inEnv := os.LookupEnv(TerragruntNoTipsKey)
+		if !inEnv {
+			options.EnvVars[TerragruntNoTipsKey] = "true"
+		}
+	}
+}

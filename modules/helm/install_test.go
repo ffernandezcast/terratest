@@ -1,3 +1,4 @@
+//go:build kubeall || helm
 // +build kubeall helm
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests, and further differentiate helm
@@ -5,85 +6,100 @@
 // helm can overload the minikube system and thus interfere with the other kubernetes tests. To avoid overloading the
 // system, we run the kubernetes tests and helm tests separately from the others.
 
-package helm
+package helm_test
 
 import (
 	"crypto/tls"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/gruntwork-io/terratest/modules/helm"
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 )
 
-// Test that we can install a remote chart (e.g stable/chartmuseum)
+const (
+	remoteChartSource  = "https://charts.bitnami.com/bitnami"
+	remoteChartName    = "nginx"
+	remoteChartVersion = "22.4.0"
+)
+
+// Test that we can install a remote chart (e.g bitnami/nginx)
 func TestRemoteChartInstall(t *testing.T) {
 	t.Parallel()
 
 	namespaceName := fmt.Sprintf(
 		"%s-%s",
 		strings.ToLower(t.Name()),
-		strings.ToLower(random.UniqueId()),
+		strings.ToLower(random.UniqueID()),
 	)
 
 	// Use default kubectl options to create a new namespace for this test, and then update the namespace for kubectl
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
-	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
 
-	// Override service type to node port
-	options := &Options{
+	k8s.CreateNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+
+	// Override service type to node port and disable PDB (requires policy/v1 API
+	// which may not be available on older k8s clusters)
+	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: map[string]string{
 			"service.type": "NodePort",
+			"pdb.create":   "false",
 		},
+		Version: remoteChartVersion,
 	}
 
 	// Add the stable repo under a random name so as not to touch existing repo configs
-	uniqueName := strings.ToLower(fmt.Sprintf("terratest-%s", random.UniqueId()))
-	defer RemoveRepo(t, options, uniqueName)
-	AddRepo(t, options, uniqueName, "https://charts.helm.sh/stable")
-	helmChart := fmt.Sprintf("%s/chartmuseum", uniqueName)
+	uniqueName := strings.ToLower("terratest-" + random.UniqueID())
+	defer helm.RemoveRepo(t, options, uniqueName)
+
+	helm.AddRepo(t, options, uniqueName, remoteChartSource)
+	helmChart := fmt.Sprintf("%s/%s", uniqueName, remoteChartName)
 
 	// Generate a unique release name so we can defer the delete before installing
 	releaseName := fmt.Sprintf(
-		"chartmuseum-%s",
-		strings.ToLower(random.UniqueId()),
+		"%s-%s",
+		remoteChartName, strings.ToLower(random.UniqueID()),
 	)
-	defer Delete(t, options, releaseName, true)
+	defer helm.Delete(t, options, releaseName, true)
 
 	// Test if helm.install will return an error if the chart version is incorrect
 	options.Version = "notValidVersion.0.0.0"
-	require.Error(t, InstallE(t, options, helmChart, releaseName))
+	require.Error(t, helm.InstallE(t, options, helmChart, releaseName))
 
 	// Fix chart version and retry install
-	options.Version = "2.3.0"
+	options.Version = remoteChartVersion
 	// Test that passing extra arguments doesn't error, by changing default timeout
-	options.ExtraArgs = map[string][]string{"install": []string{"--timeout", "5m1s"}}
+	options.ExtraArgs = map[string][]string{"install": {"--timeout", "5m1s"}}
 	options.ExtraArgs["delete"] = []string{"--timeout", "5m1s"}
-	require.NoError(t, InstallE(t, options, helmChart, releaseName))
+	require.NoError(t, helm.InstallE(t, options, helmChart, releaseName))
 	waitForRemoteChartPods(t, kubectlOptions, releaseName, 1)
 
 	// Verify service is accessible. Wait for it to become available and then hit the endpoint.
-	// Service name is RELEASE_NAME-CHART_NAME
-	serviceName := fmt.Sprintf("%s-chartmuseum", releaseName)
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 10, 1*time.Second)
-	service := k8s.GetService(t, kubectlOptions, serviceName)
-	endpoint := k8s.GetServiceEndpoint(t, kubectlOptions, service, 8080)
+	serviceName := releaseName
+	k8s.WaitUntilServiceAvailableContext(t, t.Context(), kubectlOptions, serviceName, 10, 1*time.Second)
+	service := k8s.GetServiceContext(t, t.Context(), kubectlOptions, serviceName)
+	endpoint := k8s.GetServiceEndpointContext(t, t.Context(), kubectlOptions, service, 80)
 
 	// Setup a TLS configuration to submit with the helper, a blank struct is acceptable
 	tlsConfig := tls.Config{}
 
-	http_helper.HttpGetWithRetryWithCustomValidation(
+	http_helper.HTTPGetWithRetryWithCustomValidationContext(
 		t,
-		fmt.Sprintf("http://%s", endpoint),
+		t.Context(),
+		"http://"+endpoint,
 		&tlsConfig,
 		30,
 		10*time.Second,
@@ -93,15 +109,67 @@ func TestRemoteChartInstall(t *testing.T) {
 	)
 }
 
+// Test deployment of helm chart with dependencies.
+func TestHelmDependencyInstall(t *testing.T) {
+	t.Parallel()
+
+	// Path to the helm chart with dependencies which we will test
+	helmChartPath, err := filepath.Abs("../../examples/helm-dependency-example")
+	require.NoError(t, err)
+
+	// Custom namespace name.
+	namespaceName := "helm-dependency-example-" + strings.ToLower(random.UniqueID())
+
+	// Setup the kubectl config and context. Here we choose to use the defaults, which is:
+	// - HOME/.kube/config for the kubectl config file
+	// - Current context of the kubectl config file
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	k8s.CreateNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespaceContext(t, t.Context(), kubectlOptions, namespaceName)
+
+	// Helm chart deployment options.
+	options := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		SetValues: map[string]string{
+			"containerImageRepo":       "nginx",
+			"containerImageTag":        "1.15.8",
+			"basic.containerImageRepo": "nginx",
+			"basic.containerImageTag":  "1.15.8",
+		},
+		BuildDependencies: true,
+	}
+	// We generate a unique release name so that we can refer to after deployment.
+	// By doing so, we can schedule the delete call here so that at the end of the test, we run
+	// `helm delete RELEASE_NAME` to clean up any resources that were created.
+	releaseName := "helm-dependency-example-" + strings.ToLower(random.UniqueID())
+	defer helm.Delete(t, options, releaseName, true)
+
+	// Deploy the chart using `helm install`.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	assert.NoError(t, err) //nolint:testifylint // assert not require: deferred Delete must run even if install fails
+
+	// Verify that Kubernetes service is available after helm chart deployment.
+	_, err = k8s.GetServiceContextE(t, t.Context(), kubectlOptions, releaseName)
+	assert.NoError(t, err)
+}
+
 func waitForRemoteChartPods(t *testing.T, kubectlOptions *k8s.KubectlOptions, releaseName string, podCount int) {
+	t.Helper()
 	// Get pod and wait for it to be avaialable
 	// To get the pod, we need to filter it using the labels that the helm chart creates
 	filters := metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("app=chartmuseum,release=%s", releaseName),
+		LabelSelector: fmt.Sprintf(
+			"app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s",
+			remoteChartName, releaseName,
+		),
 	}
-	k8s.WaitUntilNumPodsCreated(t, kubectlOptions, filters, podCount, 30, 10*time.Second)
-	pods := k8s.ListPods(t, kubectlOptions, filters)
-	for _, pod := range pods {
-		k8s.WaitUntilPodAvailable(t, kubectlOptions, pod.Name, 30, 10*time.Second)
+	// Use longer timeout (60 retries * 10s = 10 min) to handle slower CI environments
+	// and potential resource contention when multiple helm tests run in parallel
+	k8s.WaitUntilNumPodsCreatedContext(t, t.Context(), kubectlOptions, filters, podCount, 60, 10*time.Second)
+
+	pods := k8s.ListPodsContext(t, t.Context(), kubectlOptions, filters)
+	for i := range pods {
+		k8s.WaitUntilPodAvailableContext(t, t.Context(), kubectlOptions, pods[i].Name, 60, 10*time.Second)
 	}
 }

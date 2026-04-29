@@ -1,24 +1,38 @@
 package azure
 
 import (
-	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2019-06-01/subscriptions"
+	"context"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 )
 
-// GetSubscriptionClientE is a helper function that will setup an Azure Subscription client on your behalf
-func GetSubscriptionClientE() (*subscriptions.Client, error) {
-	// Create a Subscription client
-	client, err := CreateSubscriptionsClientE()
+// CreateSubscriptionsClientContextE returns a subscriptions client.
+// The ctx parameter supports cancellation and timeouts.
+func CreateSubscriptionsClientContextE(_ context.Context) (*armsubscriptions.Client, error) {
+	cred, err := newArmCredential()
 	if err != nil {
 		return nil, err
 	}
 
-	// Create an authorizer
-	authorizer, err := NewAuthorizer()
+	opts, err := newArmClientOptions()
 	if err != nil {
 		return nil, err
 	}
 
-	// Attach authorizer to the client
-	client.Authorizer = *authorizer
-	return &client, nil
+	return armsubscriptions.NewClient(cred, opts)
+}
+
+// GetSubscriptionClientContextE is a helper function that will setup an Azure Subscription client on your behalf.
+// The ctx parameter supports cancellation and timeouts.
+//
+// Deprecated: Use [CreateSubscriptionsClientContextE] instead.
+func GetSubscriptionClientContextE(ctx context.Context) (*armsubscriptions.Client, error) {
+	return CreateSubscriptionsClientContextE(ctx)
+}
+
+// GetSubscriptionClientE is a helper function that will setup an Azure Subscription client on your behalf.
+//
+// Deprecated: Use [CreateSubscriptionsClientContextE] instead.
+func GetSubscriptionClientE() (*armsubscriptions.Client, error) {
+	return CreateSubscriptionsClientContextE(context.Background())
 }

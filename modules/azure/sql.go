@@ -3,135 +3,194 @@ package azure
 import (
 	"context"
 
-	"github.com/Azure/azure-sdk-for-go/profiles/preview/sql/mgmt/sql"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/sql/armsql"
 	"github.com/gruntwork-io/terratest/modules/testing"
 	"github.com/stretchr/testify/require"
 )
 
-// GetSQLServerClient is a helper function that will setup a sql server client
-// TODO: remove in next version
-func GetSQLServerClient(subscriptionID string) (*sql.ServersClient, error) {
-	// Validate Azure subscription ID
-	subscriptionID, err := getTargetAzureSubscription(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a sql server client
-	sqlClient := sql.NewServersClient(subscriptionID)
-
-	// Create an authorizer
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-
-	// Attach authorizer to the client
-	sqlClient.Authorizer = *authorizer
-
-	return &sqlClient, nil
+// GetSQLServerClientContext is a helper function that will setup a sql server client.
+// The ctx parameter supports cancellation and timeouts.
+func GetSQLServerClientContext(ctx context.Context, subscriptionID string) (*armsql.ServersClient, error) {
+	return CreateSQLServerClientContext(ctx, subscriptionID)
 }
 
-// GetSQLServer is a helper function that gets the sql server object.
+// GetSQLServerClient is a helper function that will setup a sql server client.
+//
+// Deprecated: Use [GetSQLServerClientContext] instead.
+func GetSQLServerClient(subscriptionID string) (*armsql.ServersClient, error) {
+	return GetSQLServerClientContext(context.Background(), subscriptionID)
+}
+
+// GetSQLServerContext is a helper function that gets the sql server object.
 // This function would fail the test if there is an error.
-func GetSQLServer(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) *sql.Server {
-	sqlServer, err := GetSQLServerE(t, subscriptionID, resGroupName, serverName)
+// The ctx parameter supports cancellation and timeouts.
+func GetSQLServerContext(t testing.TestingT, ctx context.Context, subscriptionID string, resGroupName string, serverName string) *armsql.Server {
+	t.Helper()
+
+	sqlServer, err := GetSQLServerContextE(t, ctx, subscriptionID, resGroupName, serverName)
 	require.NoError(t, err)
 
 	return sqlServer
 }
 
+// GetSQLServer is a helper function that gets the sql server object.
+// This function would fail the test if there is an error.
+//
+// Deprecated: Use [GetSQLServerContext] instead.
+func GetSQLServer(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) *armsql.Server {
+	t.Helper()
+
+	return GetSQLServerContext(t, context.Background(), subscriptionID, resGroupName, serverName)
+}
+
+// GetSQLServerContextE is a helper function that gets the sql server object.
+// The ctx parameter supports cancellation and timeouts.
+func GetSQLServerContextE(t testing.TestingT, ctx context.Context, subscriptionID string, resGroupName string, serverName string) (*armsql.Server, error) {
+	// Create a SQL Server client
+	sqlClient, err := CreateSQLServerClientContext(ctx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return GetSQLServerWithClient(ctx, sqlClient, resGroupName, serverName)
+}
+
+// GetSQLServerWithClient gets the sql server object using the provided ServersClient.
+func GetSQLServerWithClient(ctx context.Context, client *armsql.ServersClient, resGroupName string, serverName string) (*armsql.Server, error) {
+	resp, err := client.Get(ctx, resGroupName, serverName, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.Server, nil
+}
+
 // GetSQLServerE is a helper function that gets the sql server object.
-func GetSQLServerE(t testing.TestingT, subscriptionID string, resGroupName string, serverName string) (*sql.Server, error) {
-	// Create a SQl Server client
-	sqlClient, err := CreateSQLServerClient(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	//Get the corresponding server client
-	sqlServer, err := sqlClient.Get(context.Background(), resGroupName, serverName)
-	if err != nil {
-		return nil, err
-	}
-
-	//Return sql server
-	return &sqlServer, nil
+//
+// Deprecated: Use [GetSQLServerContextE] instead.
+func GetSQLServerE(t testing.TestingT, subscriptionID string, resGroupName string, serverName string) (*armsql.Server, error) {
+	return GetSQLServerContextE(t, context.Background(), subscriptionID, resGroupName, serverName)
 }
 
-// GetDatabaseClient  is a helper function that will setup a sql DB client
-// TODO: remove in next version
-func GetDatabaseClient(subscriptionID string) (*sql.DatabasesClient, error) {
-	// Validate Azure subscription ID
-	subscriptionID, err := getTargetAzureSubscription(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a sql DB client
-	sqlDBClient := sql.NewDatabasesClient(subscriptionID)
-
-	// Create an authorizer
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-
-	// Attach authorizer to the client
-	sqlDBClient.Authorizer = *authorizer
-
-	return &sqlDBClient, nil
+// GetDatabaseClientContext is a helper function that will setup a sql DB client.
+// The ctx parameter supports cancellation and timeouts.
+func GetDatabaseClientContext(ctx context.Context, subscriptionID string) (*armsql.DatabasesClient, error) {
+	return CreateDatabaseClientContext(ctx, subscriptionID)
 }
 
-//ListSQLServerDatabases is a helper function that gets a list of databases on a sql server
-func ListSQLServerDatabases(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) *[]sql.Database {
-	dbList, err := ListSQLServerDatabasesE(t, resGroupName, serverName, subscriptionID)
+// GetDatabaseClient is a helper function that will setup a sql DB client.
+//
+// Deprecated: Use [GetDatabaseClientContext] instead.
+func GetDatabaseClient(subscriptionID string) (*armsql.DatabasesClient, error) {
+	return GetDatabaseClientContext(context.Background(), subscriptionID)
+}
+
+// ListSQLServerDatabasesContext is a helper function that gets a list of databases on a sql server.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListSQLServerDatabasesContext(t testing.TestingT, ctx context.Context, resGroupName string, serverName string, subscriptionID string) []*armsql.Database {
+	t.Helper()
+
+	dbList, err := ListSQLServerDatabasesContextE(t, ctx, resGroupName, serverName, subscriptionID)
 	require.NoError(t, err)
 
 	return dbList
 }
 
-//ListSQLServerDatabasesE is a helper function that gets a list of databases on a sql server
-func ListSQLServerDatabasesE(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) (*[]sql.Database, error) {
-	// Create a SQl db client
-	sqlClient, err := CreateDatabaseClient(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
+// ListSQLServerDatabases is a helper function that gets a list of databases on a sql server.
+// This function would fail the test if there is an error.
+//
+// Deprecated: Use [ListSQLServerDatabasesContext] instead.
+func ListSQLServerDatabases(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) []*armsql.Database {
+	t.Helper()
 
-	//Get the corresponding DB client
-	sqlDbs, err := sqlClient.ListByServer(context.Background(), resGroupName, serverName, "", "")
-	if err != nil {
-		return nil, err
-	}
-
-	// Return DB ID
-	return sqlDbs.Value, nil
+	return ListSQLServerDatabasesContext(t, context.Background(), resGroupName, serverName, subscriptionID)
 }
 
-// GetSQLDatabase is a helper function that gets the sql db.
+// ListSQLServerDatabasesContextE is a helper function that gets a list of databases on a sql server.
+// The ctx parameter supports cancellation and timeouts.
+func ListSQLServerDatabasesContextE(t testing.TestingT, ctx context.Context, resGroupName string, serverName string, subscriptionID string) ([]*armsql.Database, error) {
+	// Create a SQL db client
+	sqlClient, err := CreateDatabaseClientContext(ctx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return ListSQLServerDatabasesWithClient(ctx, sqlClient, resGroupName, serverName)
+}
+
+// ListSQLServerDatabasesWithClient lists databases on a sql server using the provided DatabasesClient.
+func ListSQLServerDatabasesWithClient(ctx context.Context, client *armsql.DatabasesClient, resGroupName string, serverName string) ([]*armsql.Database, error) {
+	pager := client.NewListByServerPager(resGroupName, serverName, nil)
+
+	var databases []*armsql.Database
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		databases = append(databases, page.Value...)
+	}
+
+	return databases, nil
+}
+
+// ListSQLServerDatabasesE is a helper function that gets a list of databases on a sql server.
+//
+// Deprecated: Use [ListSQLServerDatabasesContextE] instead.
+func ListSQLServerDatabasesE(t testing.TestingT, resGroupName string, serverName string, subscriptionID string) ([]*armsql.Database, error) {
+	return ListSQLServerDatabasesContextE(t, context.Background(), resGroupName, serverName, subscriptionID)
+}
+
+// GetSQLDatabaseContext is a helper function that gets the sql db.
 // This function would fail the test if there is an error.
-func GetSQLDatabase(t testing.TestingT, resGroupName string, serverName string, dbName string, subscriptionID string) *sql.Database {
-	database, err := GetSQLDatabaseE(t, subscriptionID, resGroupName, serverName, dbName)
+// The ctx parameter supports cancellation and timeouts.
+func GetSQLDatabaseContext(t testing.TestingT, ctx context.Context, subscriptionID string, resGroupName string, serverName string, dbName string) *armsql.Database {
+	t.Helper()
+
+	database, err := GetSQLDatabaseContextE(t, ctx, subscriptionID, resGroupName, serverName, dbName)
 	require.NoError(t, err)
 
 	return database
 }
 
+// GetSQLDatabase is a helper function that gets the sql db.
+// This function would fail the test if there is an error.
+//
+// Deprecated: Use [GetSQLDatabaseContext] instead.
+func GetSQLDatabase(t testing.TestingT, resGroupName string, serverName string, dbName string, subscriptionID string) *armsql.Database {
+	t.Helper()
+
+	return GetSQLDatabaseContext(t, context.Background(), subscriptionID, resGroupName, serverName, dbName)
+}
+
+// GetSQLDatabaseContextE is a helper function that gets the sql db.
+// The ctx parameter supports cancellation and timeouts.
+func GetSQLDatabaseContextE(t testing.TestingT, ctx context.Context, subscriptionID string, resGroupName string, serverName string, dbName string) (*armsql.Database, error) {
+	// Create a SQL db client
+	sqlClient, err := CreateDatabaseClientContext(ctx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return GetSQLDatabaseWithClient(ctx, sqlClient, resGroupName, serverName, dbName)
+}
+
+// GetSQLDatabaseWithClient gets the sql db using the provided DatabasesClient.
+func GetSQLDatabaseWithClient(ctx context.Context, client *armsql.DatabasesClient, resGroupName string, serverName string, dbName string) (*armsql.Database, error) {
+	resp, err := client.Get(ctx, resGroupName, serverName, dbName, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.Database, nil
+}
+
 // GetSQLDatabaseE is a helper function that gets the sql db.
-func GetSQLDatabaseE(t testing.TestingT, subscriptionID string, resGroupName string, serverName string, dbName string) (*sql.Database, error) {
-	// Create a SQl db client
-	sqlClient, err := CreateDatabaseClient(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	//Get the corresponding DB client
-	sqlDb, err := sqlClient.Get(context.Background(), resGroupName, serverName, dbName, "")
-	if err != nil {
-		return nil, err
-	}
-
-	// Return DB
-	return &sqlDb, nil
+//
+// Deprecated: Use [GetSQLDatabaseContextE] instead.
+func GetSQLDatabaseE(t testing.TestingT, subscriptionID string, resGroupName string, serverName string, dbName string) (*armsql.Database, error) {
+	return GetSQLDatabaseContextE(t, context.Background(), subscriptionID, resGroupName, serverName, dbName)
 }

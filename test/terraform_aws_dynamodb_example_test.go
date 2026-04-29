@@ -1,11 +1,12 @@
-package test
+//go:build aws
+
+package test_test
 
 import (
-	"fmt"
 	"testing"
 
-	awsSDK "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
+	awsSDK "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/gruntwork-io/terratest/modules/aws"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
@@ -17,16 +18,16 @@ func TestTerraformAwsDynamoDBExample(t *testing.T) {
 	t.Parallel()
 
 	// Pick a random AWS region to test in. This helps ensure your code works in all regions.
-	awsRegion := aws.GetRandomStableRegion(t, nil, nil)
+	awsRegion := aws.GetRandomStableRegionContext(t, t.Context(), nil, nil)
 
 	// Set up expected values to be checked later
-	expectedTableName := fmt.Sprintf("terratest-aws-dynamodb-example-table-%s", random.UniqueId())
-	expectedKmsKeyArn := aws.GetCmkArn(t, awsRegion, "alias/aws/dynamodb")
-	expectedKeySchema := []*dynamodb.KeySchemaElement{
-		{AttributeName: awsSDK.String("userId"), KeyType: awsSDK.String("HASH")},
-		{AttributeName: awsSDK.String("department"), KeyType: awsSDK.String("RANGE")},
+	expectedTableName := "terratest-aws-dynamodb-example-table-" + random.UniqueID()
+	expectedKmsKeyArn := aws.GetCmkArnContext(t, t.Context(), awsRegion, "alias/aws/dynamodb")
+	expectedKeySchema := []types.KeySchemaElement{
+		{AttributeName: awsSDK.String("userId"), KeyType: types.KeyTypeHash},
+		{AttributeName: awsSDK.String("department"), KeyType: types.KeyTypeRange},
 	}
-	expectedTags := []*dynamodb.Tag{
+	expectedTags := []types.Tag{
 		{Key: awsSDK.String("Environment"), Value: awsSDK.String("production")},
 	}
 
@@ -44,28 +45,28 @@ func TestTerraformAwsDynamoDBExample(t *testing.T) {
 	})
 
 	// At the end of the test, run `terraform destroy` to clean up any resources that were created
-	defer terraform.Destroy(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
 	// This will run `terraform init` and `terraform apply` and fail the test if there are any errors
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// Look up the DynamoDB table by name
-	table := aws.GetDynamoDBTable(t, awsRegion, expectedTableName)
+	table := aws.GetDynamoDBTableContext(t, t.Context(), awsRegion, expectedTableName)
 
-	assert.Equal(t, "ACTIVE", awsSDK.StringValue(table.TableStatus))
+	assert.Equal(t, "ACTIVE", string(table.TableStatus))
 	assert.ElementsMatch(t, expectedKeySchema, table.KeySchema)
 
 	// Verify server-side encryption configuration
-	assert.Equal(t, expectedKmsKeyArn, awsSDK.StringValue(table.SSEDescription.KMSMasterKeyArn))
-	assert.Equal(t, "ENABLED", awsSDK.StringValue(table.SSEDescription.Status))
-	assert.Equal(t, "KMS", awsSDK.StringValue(table.SSEDescription.SSEType))
+	assert.Equal(t, expectedKmsKeyArn, awsSDK.ToString(table.SSEDescription.KMSMasterKeyArn))
+	assert.Equal(t, "ENABLED", string(table.SSEDescription.Status))
+	assert.Equal(t, "KMS", string(table.SSEDescription.SSEType))
 
 	// Verify TTL configuration
-	ttl := aws.GetDynamoDBTableTimeToLive(t, awsRegion, expectedTableName)
-	assert.Equal(t, "expires", awsSDK.StringValue(ttl.AttributeName))
-	assert.Equal(t, "ENABLED", awsSDK.StringValue(ttl.TimeToLiveStatus))
+	ttl := aws.GetDynamoDBTableTimeToLiveContext(t, t.Context(), awsRegion, expectedTableName)
+	assert.Equal(t, "expires", awsSDK.ToString(ttl.AttributeName))
+	assert.Equal(t, "ENABLED", string(ttl.TimeToLiveStatus))
 
 	// Verify resource tags
-	tags := aws.GetDynamoDbTableTags(t, awsRegion, expectedTableName)
+	tags := aws.GetDynamoDBTableTagsContext(t, t.Context(), awsRegion, expectedTableName)
 	assert.ElementsMatch(t, expectedTags, tags)
 }

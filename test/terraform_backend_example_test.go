@@ -1,7 +1,6 @@
-package test
+package test_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -15,16 +14,17 @@ import (
 func TestTerraformBackendExample(t *testing.T) {
 	t.Parallel()
 
-	awsRegion := aws.GetRandomRegion(t, nil, nil)
-	uniqueId := random.UniqueId()
+	awsRegion := aws.GetRandomRegionContext(t, t.Context(), nil, nil)
+	uniqueID := random.UniqueID()
 
 	// Create an S3 bucket where we can store state
-	bucketName := fmt.Sprintf("test-terraform-backend-example-%s", strings.ToLower(uniqueId))
+	bucketName := "test-terraform-backend-example-" + strings.ToLower(uniqueID)
 	defer cleanupS3Bucket(t, awsRegion, bucketName)
-	aws.CreateS3Bucket(t, awsRegion, bucketName)
 
-	key := fmt.Sprintf("%s/terraform.tfstate", uniqueId)
-	data := fmt.Sprintf("data-for-test-%s", uniqueId)
+	aws.CreateS3BucketContext(t, t.Context(), awsRegion, bucketName)
+
+	key := uniqueID + "/terraform.tfstate"
+	data := "data-for-test-" + uniqueID
 
 	// Deploy the module, configuring it to use the S3 bucket as an S3 backend
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
@@ -39,20 +39,23 @@ func TestTerraformBackendExample(t *testing.T) {
 		},
 	})
 
-	defer terraform.Destroy(t, terraformOptions)
-	terraform.InitAndApply(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
+
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// Check a state file actually got stored and contains our data in it somewhere (since that data is used in an
 	// output of the Terraform code)
-	contents := aws.GetS3ObjectContents(t, awsRegion, bucketName, key)
+	contents := aws.GetS3ObjectContentsContext(t, t.Context(), awsRegion, bucketName, key)
 	require.Contains(t, contents, data)
 
 	// The module doesn't really *do* anything, so we just check a dummy output here and move on
-	foo := terraform.OutputRequired(t, terraformOptions, "foo")
+	foo := terraform.OutputRequiredContext(t, t.Context(), terraformOptions, "foo")
 	require.Equal(t, data, foo)
 }
 
 func cleanupS3Bucket(t *testing.T, awsRegion string, bucketName string) {
-	aws.EmptyS3Bucket(t, awsRegion, bucketName)
-	aws.DeleteS3Bucket(t, awsRegion, bucketName)
+	t.Helper()
+
+	aws.EmptyS3BucketContext(t, t.Context(), awsRegion, bucketName)
+	aws.DeleteS3BucketContext(t, t.Context(), awsRegion, bucketName)
 }

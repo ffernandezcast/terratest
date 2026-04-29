@@ -1,29 +1,18 @@
-// +build azure
-
-// NOTE: We use build tags to differentiate azure testing because we currently do not have azure access setup for
-// CircleCI.
-
-package azure
+package azure_test
 
 import (
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/azure"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetNameFromResourceID(t *testing.T) {
 	t.Parallel()
 
-	// set slice variables
-	sliceSource := "this/is/a/long/slash/separated/string/ResourceID"
-	sliceResult := "ResourceID"
-	sliceNotFound := "noresourcepresent"
+	resultSuccess := azure.GetNameFromResourceID("this/is/a/long/slash/separated/string/ResourceID")
+	assert.Equal(t, "ResourceID", resultSuccess)
 
-	// verify success
-	resultSuccess := GetNameFromResourceID(sliceSource)
-	assert.Equal(t, sliceResult, resultSuccess)
-
-	// verify error when seperator not found
-	resultBadSeperator := GetNameFromResourceID(sliceNotFound)
-	assert.Equal(t, "", resultBadSeperator)
+	resultBadSeparator := azure.GetNameFromResourceID("noresourcepresent")
+	assert.Empty(t, resultBadSeparator)
 }

@@ -16,6 +16,13 @@ data "aws_availability_zones" "available" {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = {
+      "gw:repo"    = "https://github.com/gruntwork-io/terratest"
+      "gw:example" = "terraform-aws-network-example"
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -90,7 +97,7 @@ resource "aws_route_table_association" "public" {
 # ---------------------------------------------------------------------------------------------------------------------
 
 resource "aws_eip" "nat" {
-  vpc = true
+  domain = "vpc"
 }
 
 resource "aws_nat_gateway" "nat" {

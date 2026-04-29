@@ -1,56 +1,130 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/stretchr/testify/require"
 
 	"github.com/gruntwork-io/terratest/modules/testing"
 )
 
-// GetAccountId gets the Account ID for the currently logged in IAM User.
-func GetAccountId(t testing.TestingT) string {
-	id, err := GetAccountIdE(t)
+// minARNParts is the minimum number of colon-separated parts in a valid IAM ARN.
+const minARNParts = 5
+
+// GetAccountIDContextE gets the Account ID for the currently logged in IAM User.
+// The ctx parameter supports cancellation and timeouts.
+func GetAccountIDContextE(t testing.TestingT, ctx context.Context) (string, error) {
+	stsClient, err := NewStsClientContextE(t, ctx, defaultRegion)
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
+
+	identity, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", err
+	}
+
+	return aws.ToString(identity.Account), nil
+}
+
+// GetAccountIDContext gets the Account ID for the currently logged in IAM User.
+// This function will fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func GetAccountIDContext(t testing.TestingT, ctx context.Context) string {
+	t.Helper()
+
+	id, err := GetAccountIDContextE(t, ctx)
+	require.NoError(t, err)
+
 	return id
 }
 
-// GetAccountIdE gets the Account ID for the currently logged in IAM User.
-func GetAccountIdE(t testing.TestingT) (string, error) {
-	stsClient, err := NewStsClientE(t, defaultRegion)
-	if err != nil {
-		return "", err
-	}
+// GetAccountID gets the Account ID for the currently logged in IAM User.
+//
+// Deprecated: Use [GetAccountIDContext] instead.
+func GetAccountID(t testing.TestingT) string {
+	t.Helper()
 
-	identity, err := stsClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
-	if err != nil {
-		return "", err
-	}
-
-	return aws.StringValue(identity.Account), nil
+	return GetAccountIDContext(t, context.Background())
 }
 
-// An IAM arn is of the format arn:aws:iam::123456789012:user/test. The account id is the number after arn:aws:iam::,
+// GetAccountIDE gets the Account ID for the currently logged in IAM User.
+//
+// Deprecated: Use [GetAccountIDContextE] instead.
+func GetAccountIDE(t testing.TestingT) (string, error) {
+	return GetAccountIDContextE(t, context.Background())
+}
+
+// GetAccountId gets the Account ID for the currently logged in IAM User.
+//
+// Deprecated: Use [GetAccountID] instead.
+//
+//nolint:staticcheck,revive // preserving deprecated function name
+func GetAccountId(t testing.TestingT) string {
+	return GetAccountID(t)
+}
+
+// GetAccountIdE gets the Account ID for the currently logged in IAM User.
+//
+// Deprecated: Use [GetAccountIDE] instead.
+//
+//nolint:staticcheck,revive // preserving deprecated function name
+func GetAccountIdE(t testing.TestingT) (string, error) {
+	return GetAccountIDE(t)
+}
+
+// ExtractAccountIDFromARN extracts the AWS account ID from an IAM ARN.
+// An IAM ARN is of the format arn:aws:iam::123456789012:user/test. The account ID is the number after arn:aws:iam::,
 // so we split on a colon and return the 5th item.
-func extractAccountIDFromARN(arn string) (string, error) {
+func ExtractAccountIDFromARN(arn string) (string, error) {
 	arnParts := strings.Split(arn, ":")
 
-	if len(arnParts) < 5 {
+	if len(arnParts) < minARNParts {
 		return "", errors.New("Unrecognized format for IAM ARN: " + arn)
 	}
 
 	return arnParts[4], nil
 }
 
-// NewStsClientE creates a new STS client.
-func NewStsClientE(t testing.TestingT, region string) (*sts.STS, error) {
-	sess, err := NewAuthenticatedSession(region)
+// NewStsClientContextE creates a new STS client.
+// The ctx parameter supports cancellation and timeouts.
+func NewStsClientContextE(t testing.TestingT, ctx context.Context, region string) (*sts.Client, error) {
+	sess, err := NewAuthenticatedSessionContext(ctx, region)
 	if err != nil {
 		return nil, err
 	}
-	return sts.New(sess), nil
+
+	return sts.NewFromConfig(*sess), nil
+}
+
+// NewStsClientContext creates a new STS client.
+// This function will fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func NewStsClientContext(t testing.TestingT, ctx context.Context, region string) *sts.Client {
+	t.Helper()
+
+	client, err := NewStsClientContextE(t, ctx, region)
+	require.NoError(t, err)
+
+	return client
+}
+
+// NewStsClient creates a new STS client.
+//
+// Deprecated: Use [NewStsClientContext] instead.
+func NewStsClient(t testing.TestingT, region string) *sts.Client {
+	t.Helper()
+
+	return NewStsClientContext(t, context.Background(), region)
+}
+
+// NewStsClientE creates a new STS client.
+//
+// Deprecated: Use [NewStsClientContextE] instead.
+func NewStsClientE(t testing.TestingT, region string) (*sts.Client, error) {
+	return NewStsClientContextE(t, context.Background(), region)
 }

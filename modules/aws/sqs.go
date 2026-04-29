@@ -1,31 +1,29 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/testing"
+	"github.com/stretchr/testify/require"
 )
 
-// CreateRandomQueue creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
-func CreateRandomQueue(t testing.TestingT, awsRegion string, prefix string) string {
-	url, err := CreateRandomQueueE(t, awsRegion, prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return url
-}
+// sqsMaxWaitTimeSeconds is the maximum number of seconds to wait for a message on a single SQS receive call.
+const sqsMaxWaitTimeSeconds = 20
 
-// CreateRandomQueueE creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
-func CreateRandomQueueE(t testing.TestingT, awsRegion string, prefix string) (string, error) {
-	logger.Logf(t, "Creating randomly named SQS queue with prefix %s", prefix)
+// CreateRandomQueueContextE creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
+// The ctx parameter supports cancellation and timeouts.
+func CreateRandomQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, prefix string) (string, error) {
+	logger.Default.Logf(t, "Creating randomly named SQS queue with prefix %s", prefix)
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return "", err
 	}
@@ -37,31 +35,49 @@ func CreateRandomQueueE(t testing.TestingT, awsRegion string, prefix string) (st
 
 	channelName := fmt.Sprintf("%s-%s", prefix, channel.String())
 
-	queue, err := sqsClient.CreateQueue(&sqs.CreateQueueInput{
+	queue, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String(channelName),
 	})
-
 	if err != nil {
 		return "", err
 	}
 
-	return aws.StringValue(queue.QueueUrl), nil
+	return aws.ToString(queue.QueueUrl), nil
 }
 
-// CreateRandomFifoQueue creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
-func CreateRandomFifoQueue(t testing.TestingT, awsRegion string, prefix string) string {
-	url, err := CreateRandomFifoQueueE(t, awsRegion, prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
+// CreateRandomQueueContext creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
+// The ctx parameter supports cancellation and timeouts.
+func CreateRandomQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, prefix string) string {
+	t.Helper()
+
+	url, err := CreateRandomQueueContextE(t, ctx, awsRegion, prefix)
+	require.NoError(t, err)
+
 	return url
 }
 
-// CreateRandomFifoQueueE creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
-func CreateRandomFifoQueueE(t testing.TestingT, awsRegion string, prefix string) (string, error) {
-	logger.Logf(t, "Creating randomly named FIFO SQS queue with prefix %s", prefix)
+// CreateRandomQueue creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
+//
+// Deprecated: Use [CreateRandomQueueContext] instead.
+func CreateRandomQueue(t testing.TestingT, awsRegion string, prefix string) string {
+	t.Helper()
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	return CreateRandomQueueContext(t, context.Background(), awsRegion, prefix)
+}
+
+// CreateRandomQueueE creates a new SQS queue with a random name that starts with the given prefix and return the queue URL.
+//
+// Deprecated: Use [CreateRandomQueueContextE] instead.
+func CreateRandomQueueE(t testing.TestingT, awsRegion string, prefix string) (string, error) {
+	return CreateRandomQueueContextE(t, context.Background(), awsRegion, prefix)
+}
+
+// CreateRandomFifoQueueContextE creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
+// The ctx parameter supports cancellation and timeouts.
+func CreateRandomFifoQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, prefix string) (string, error) {
+	logger.Default.Logf(t, "Creating randomly named FIFO SQS queue with prefix %s", prefix)
+
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return "", err
 	}
@@ -73,63 +89,100 @@ func CreateRandomFifoQueueE(t testing.TestingT, awsRegion string, prefix string)
 
 	channelName := fmt.Sprintf("%s-%s.fifo", prefix, channel.String())
 
-	queue, err := sqsClient.CreateQueue(&sqs.CreateQueueInput{
+	queue, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String(channelName),
-		Attributes: map[string]*string{
-			"ContentBasedDeduplication": aws.String("true"),
-			"FifoQueue":                 aws.String("true"),
+		Attributes: map[string]string{
+			"ContentBasedDeduplication": "true",
+			"FifoQueue":                 "true",
 		},
 	})
-
 	if err != nil {
 		return "", err
 	}
 
-	return aws.StringValue(queue.QueueUrl), nil
+	return aws.ToString(queue.QueueUrl), nil
 }
 
-// DeleteQueue deletes the SQS queue with the given URL.
-func DeleteQueue(t testing.TestingT, awsRegion string, queueURL string) {
-	err := DeleteQueueE(t, awsRegion, queueURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+// CreateRandomFifoQueueContext creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
+// The ctx parameter supports cancellation and timeouts.
+func CreateRandomFifoQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, prefix string) string {
+	t.Helper()
+
+	url, err := CreateRandomFifoQueueContextE(t, ctx, awsRegion, prefix)
+	require.NoError(t, err)
+
+	return url
 }
 
-// DeleteQueueE deletes the SQS queue with the given URL.
-func DeleteQueueE(t testing.TestingT, awsRegion string, queueURL string) error {
-	logger.Logf(t, "Deleting SQS Queue %s", queueURL)
+// CreateRandomFifoQueue creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
+//
+// Deprecated: Use [CreateRandomFifoQueueContext] instead.
+func CreateRandomFifoQueue(t testing.TestingT, awsRegion string, prefix string) string {
+	t.Helper()
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	return CreateRandomFifoQueueContext(t, context.Background(), awsRegion, prefix)
+}
+
+// CreateRandomFifoQueueE creates a new FIFO SQS queue with a random name that starts with the given prefix and return the queue URL.
+//
+// Deprecated: Use [CreateRandomFifoQueueContextE] instead.
+func CreateRandomFifoQueueE(t testing.TestingT, awsRegion string, prefix string) (string, error) {
+	return CreateRandomFifoQueueContextE(t, context.Background(), awsRegion, prefix)
+}
+
+// DeleteQueueContextE deletes the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func DeleteQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string) error {
+	logger.Default.Logf(t, "Deleting SQS Queue %s", queueURL)
+
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return err
 	}
 
-	_, err = sqsClient.DeleteQueue(&sqs.DeleteQueueInput{
+	_, err = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{
 		QueueUrl: aws.String(queueURL),
 	})
 
 	return err
 }
 
-// DeleteMessageFromQueue deletes the message with the given receipt from the SQS queue with the given URL.
-func DeleteMessageFromQueue(t testing.TestingT, awsRegion string, queueURL string, receipt string) {
-	err := DeleteMessageFromQueueE(t, awsRegion, queueURL, receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
+// DeleteQueueContext deletes the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func DeleteQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string) {
+	t.Helper()
+
+	err := DeleteQueueContextE(t, ctx, awsRegion, queueURL)
+	require.NoError(t, err)
 }
 
-// DeleteMessageFromQueueE deletes the message with the given receipt from the SQS queue with the given URL.
-func DeleteMessageFromQueueE(t testing.TestingT, awsRegion string, queueURL string, receipt string) error {
-	logger.Logf(t, "Deleting message from queue %s (%s)", queueURL, receipt)
+// DeleteQueue deletes the SQS queue with the given URL.
+//
+// Deprecated: Use [DeleteQueueContext] instead.
+func DeleteQueue(t testing.TestingT, awsRegion string, queueURL string) {
+	t.Helper()
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	DeleteQueueContext(t, context.Background(), awsRegion, queueURL)
+}
+
+// DeleteQueueE deletes the SQS queue with the given URL.
+//
+// Deprecated: Use [DeleteQueueContextE] instead.
+func DeleteQueueE(t testing.TestingT, awsRegion string, queueURL string) error {
+	return DeleteQueueContextE(t, context.Background(), awsRegion, queueURL)
+}
+
+// DeleteMessageFromQueueContextE deletes the message with the given receipt from the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func DeleteMessageFromQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, receipt string) error {
+	logger.Default.Logf(t, "Deleting message from queue %s (%s)", queueURL, receipt)
+
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return err
 	}
 
-	_, err = sqsClient.DeleteMessage(&sqs.DeleteMessageInput{
+	_, err = sqsClient.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 		ReceiptHandle: &receipt,
 		QueueUrl:      &queueURL,
 	})
@@ -137,115 +190,181 @@ func DeleteMessageFromQueueE(t testing.TestingT, awsRegion string, queueURL stri
 	return err
 }
 
-// SendMessageToQueue sends the given message to the SQS queue with the given URL.
-func SendMessageToQueue(t testing.TestingT, awsRegion string, queueURL string, message string) {
-	err := SendMessageToQueueE(t, awsRegion, queueURL, message)
-	if err != nil {
-		t.Fatal(err)
-	}
+// DeleteMessageFromQueueContext deletes the message with the given receipt from the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func DeleteMessageFromQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, receipt string) {
+	t.Helper()
+
+	err := DeleteMessageFromQueueContextE(t, ctx, awsRegion, queueURL, receipt)
+	require.NoError(t, err)
 }
 
-// SendMessageToQueueE sends the given message to the SQS queue with the given URL.
-func SendMessageToQueueE(t testing.TestingT, awsRegion string, queueURL string, message string) error {
-	logger.Logf(t, "Sending message %s to queue %s", message, queueURL)
+// DeleteMessageFromQueue deletes the message with the given receipt from the SQS queue with the given URL.
+//
+// Deprecated: Use [DeleteMessageFromQueueContext] instead.
+func DeleteMessageFromQueue(t testing.TestingT, awsRegion string, queueURL string, receipt string) {
+	t.Helper()
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	DeleteMessageFromQueueContext(t, context.Background(), awsRegion, queueURL, receipt)
+}
+
+// DeleteMessageFromQueueE deletes the message with the given receipt from the SQS queue with the given URL.
+//
+// Deprecated: Use [DeleteMessageFromQueueContextE] instead.
+func DeleteMessageFromQueueE(t testing.TestingT, awsRegion string, queueURL string, receipt string) error {
+	return DeleteMessageFromQueueContextE(t, context.Background(), awsRegion, queueURL, receipt)
+}
+
+// SendMessageToQueueContextE sends the given message to the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func SendMessageToQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, message string) error {
+	logger.Default.Logf(t, "Sending message %s to queue %s", message, queueURL)
+
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return err
 	}
 
-	res, err := sqsClient.SendMessage(&sqs.SendMessageInput{
+	res, err := sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody: &message,
 		QueueUrl:    &queueURL,
 	})
-
 	if err != nil {
 		if strings.Contains(err.Error(), "AWS.SimpleQueueService.NonExistentQueue") {
-			logger.Logf(t, fmt.Sprintf("WARN: Client has stopped listening on queue %s", queueURL))
+			logger.Default.Logf(t, "WARN: Client has stopped listening on queue %s", queueURL)
+
 			return nil
 		}
+
 		return err
 	}
 
-	logger.Logf(t, "Message id %s sent to queue %s", aws.StringValue(res.MessageId), queueURL)
+	logger.Default.Logf(t, "Message id %s sent to queue %s", aws.ToString(res.MessageId), queueURL)
 
 	return nil
 }
 
-// SendMessageToFifoQueue sends the given message to the FIFO SQS queue with the given URL.
-func SendMessageFifoToQueue(t testing.TestingT, awsRegion string, queueURL string, message string, messageGroupID string) {
-	err := SendMessageToFifoQueueE(t, awsRegion, queueURL, message, messageGroupID)
-	if err != nil {
-		t.Fatal(err)
-	}
+// SendMessageToQueueContext sends the given message to the SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func SendMessageToQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, message string) {
+	t.Helper()
+
+	err := SendMessageToQueueContextE(t, ctx, awsRegion, queueURL, message)
+	require.NoError(t, err)
 }
 
-// SendMessageToFifoQueueE sends the given message to the FIFO SQS queue with the given URL.
-func SendMessageToFifoQueueE(t testing.TestingT, awsRegion string, queueURL string, message string, messageGroupID string) error {
-	logger.Logf(t, "Sending message %s to queue %s", message, queueURL)
+// SendMessageToQueue sends the given message to the SQS queue with the given URL.
+//
+// Deprecated: Use [SendMessageToQueueContext] instead.
+func SendMessageToQueue(t testing.TestingT, awsRegion string, queueURL string, message string) {
+	t.Helper()
 
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+	SendMessageToQueueContext(t, context.Background(), awsRegion, queueURL, message)
+}
+
+// SendMessageToQueueE sends the given message to the SQS queue with the given URL.
+//
+// Deprecated: Use [SendMessageToQueueContextE] instead.
+func SendMessageToQueueE(t testing.TestingT, awsRegion string, queueURL string, message string) error {
+	return SendMessageToQueueContextE(t, context.Background(), awsRegion, queueURL, message)
+}
+
+// SendMessageFifoToQueueContextE sends the given message to the FIFO SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func SendMessageFifoToQueueContextE(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, message string, messageGroupID string) error {
+	logger.Default.Logf(t, "Sending message %s to queue %s", message, queueURL)
+
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return err
 	}
 
-	res, err := sqsClient.SendMessage(&sqs.SendMessageInput{
+	res, err := sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody:    &message,
 		QueueUrl:       &queueURL,
 		MessageGroupId: &messageGroupID,
 	})
-
 	if err != nil {
 		if strings.Contains(err.Error(), "AWS.SimpleQueueService.NonExistentQueue") {
-			logger.Logf(t, fmt.Sprintf("WARN: Client has stopped listening on queue %s", queueURL))
+			logger.Default.Logf(t, "WARN: Client has stopped listening on queue %s", queueURL)
+
 			return nil
 		}
+
 		return err
 	}
 
-	logger.Logf(t, "Message id %s sent to queue %s", aws.StringValue(res.MessageId), queueURL)
+	logger.Default.Logf(t, "Message id %s sent to queue %s", aws.ToString(res.MessageId), queueURL)
 
 	return nil
 }
 
-// QueueMessageResponse contains a queue message.
-type QueueMessageResponse struct {
-	ReceiptHandle string
-	MessageBody   string
-	Error         error
+// SendMessageFifoToQueueContext sends the given message to the FIFO SQS queue with the given URL.
+// The ctx parameter supports cancellation and timeouts.
+func SendMessageFifoToQueueContext(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, message string, messageGroupID string) {
+	t.Helper()
+
+	err := SendMessageFifoToQueueContextE(t, ctx, awsRegion, queueURL, message, messageGroupID)
+	require.NoError(t, err)
 }
 
-// WaitForQueueMessage waits to receive a message from on the queueURL. Since the API only allows us to wait a max 20 seconds for a new
-// message to arrive, we must loop TIMEOUT/20 number of times to be able to wait for a total of TIMEOUT seconds
-func WaitForQueueMessage(t testing.TestingT, awsRegion string, queueURL string, timeout int) QueueMessageResponse {
-	sqsClient, err := NewSqsClientE(t, awsRegion)
+// SendMessageFifoToQueue sends the given message to the FIFO SQS queue with the given URL.
+//
+// Deprecated: Use [SendMessageFifoToQueueContext] instead.
+func SendMessageFifoToQueue(t testing.TestingT, awsRegion string, queueURL string, message string, messageGroupID string) {
+	t.Helper()
+
+	SendMessageFifoToQueueContext(t, context.Background(), awsRegion, queueURL, message, messageGroupID)
+}
+
+// SendMessageToFifoQueueE sends the given message to the FIFO SQS queue with the given URL.
+//
+// Deprecated: Use [SendMessageFifoToQueueContextE] instead.
+func SendMessageToFifoQueueE(t testing.TestingT, awsRegion string, queueURL string, message string, messageGroupID string) error {
+	return SendMessageFifoToQueueContextE(t, context.Background(), awsRegion, queueURL, message, messageGroupID)
+}
+
+// QueueMessageResponse contains a queue message.
+type QueueMessageResponse struct {
+	Error         error
+	ReceiptHandle string
+	MessageBody   string
+}
+
+// WaitForQueueMessageContext waits to receive a message from on the queueURL. Since the API only allows us to wait a max 20 seconds for a new
+// message to arrive, we must loop TIMEOUT/20 number of times to be able to wait for a total of TIMEOUT seconds.
+// The ctx parameter supports cancellation and timeouts.
+func WaitForQueueMessageContext(t testing.TestingT, ctx context.Context, awsRegion string, queueURL string, timeout int) QueueMessageResponse {
+	sqsClient, err := NewSqsClientContextE(t, ctx, awsRegion)
 	if err != nil {
 		return QueueMessageResponse{Error: err}
 	}
 
 	cycles := timeout
 	cycleLength := 1
-	if timeout >= 20 {
-		cycleLength = 20
+
+	if timeout >= sqsMaxWaitTimeSeconds {
+		cycleLength = sqsMaxWaitTimeSeconds
 		cycles = timeout / cycleLength
 	}
 
 	for i := 0; i < cycles; i++ {
-		logger.Logf(t, "Waiting for message on %s (%ss)", queueURL, strconv.Itoa(i*cycleLength))
-		result, err := sqsClient.ReceiveMessage(&sqs.ReceiveMessageInput{
-			QueueUrl:              aws.String(queueURL),
-			AttributeNames:        aws.StringSlice([]string{"SentTimestamp"}),
-			MaxNumberOfMessages:   aws.Int64(1),
-			MessageAttributeNames: aws.StringSlice([]string{"All"}),
-			WaitTimeSeconds:       aws.Int64(int64(cycleLength)),
-		})
+		logger.Default.Logf(t, "Waiting for message on %s (%ss)", queueURL, strconv.Itoa(i*cycleLength))
 
+		result, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:                    aws.String(queueURL),
+			MessageSystemAttributeNames: []types.MessageSystemAttributeName{types.MessageSystemAttributeNameSentTimestamp},
+			MaxNumberOfMessages:         int32(1),
+			MessageAttributeNames:       []string{"All"},
+			WaitTimeSeconds:             int32(cycleLength),
+		})
 		if err != nil {
 			return QueueMessageResponse{Error: err}
 		}
 
 		if len(result.Messages) > 0 {
-			logger.Logf(t, "Message %s received on %s", *result.Messages[0].MessageId, queueURL)
+			logger.Default.Logf(t, "Message %s received on %s", *result.Messages[0].MessageId, queueURL)
+
 			return QueueMessageResponse{ReceiptHandle: *result.Messages[0].ReceiptHandle, MessageBody: *result.Messages[0].Body}
 		}
 	}
@@ -253,28 +372,55 @@ func WaitForQueueMessage(t testing.TestingT, awsRegion string, queueURL string, 
 	return QueueMessageResponse{Error: ReceiveMessageTimeout{QueueUrl: queueURL, TimeoutSec: timeout}}
 }
 
-// NewSqsClient creates a new SQS client.
-func NewSqsClient(t testing.TestingT, region string) *sqs.SQS {
-	client, err := NewSqsClientE(t, region)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return client
+// WaitForQueueMessage waits to receive a message from on the queueURL. Since the API only allows us to wait a max 20 seconds for a new
+// message to arrive, we must loop TIMEOUT/20 number of times to be able to wait for a total of TIMEOUT seconds
+//
+// Deprecated: Use [WaitForQueueMessageContext] instead.
+func WaitForQueueMessage(t testing.TestingT, awsRegion string, queueURL string, timeout int) QueueMessageResponse {
+	return WaitForQueueMessageContext(t, context.Background(), awsRegion, queueURL, timeout)
 }
 
-// NewSqsClientE creates a new SQS client.
-func NewSqsClientE(t testing.TestingT, region string) (*sqs.SQS, error) {
-	sess, err := NewAuthenticatedSession(region)
+// NewSqsClientContextE creates a new SQS client.
+// The ctx parameter supports cancellation and timeouts.
+func NewSqsClientContextE(t testing.TestingT, ctx context.Context, region string) (*sqs.Client, error) {
+	sess, err := NewAuthenticatedSessionContext(ctx, region)
 	if err != nil {
 		return nil, err
 	}
 
-	return sqs.New(sess), nil
+	return sqs.NewFromConfig(*sess), nil
+}
+
+// NewSqsClientContext creates a new SQS client.
+// The ctx parameter supports cancellation and timeouts.
+func NewSqsClientContext(t testing.TestingT, ctx context.Context, region string) *sqs.Client {
+	t.Helper()
+
+	client, err := NewSqsClientContextE(t, ctx, region)
+	require.NoError(t, err)
+
+	return client
+}
+
+// NewSqsClient creates a new SQS client.
+//
+// Deprecated: Use [NewSqsClientContext] instead.
+func NewSqsClient(t testing.TestingT, region string) *sqs.Client {
+	t.Helper()
+
+	return NewSqsClientContext(t, context.Background(), region)
+}
+
+// NewSqsClientE creates a new SQS client.
+//
+// Deprecated: Use [NewSqsClientContextE] instead.
+func NewSqsClientE(t testing.TestingT, region string) (*sqs.Client, error) {
+	return NewSqsClientContextE(t, context.Background(), region)
 }
 
 // ReceiveMessageTimeout is an error that occurs if receiving a message times out.
 type ReceiveMessageTimeout struct {
-	QueueUrl   string
+	QueueUrl   string //nolint:staticcheck,revive // preserving existing field name
 	TimeoutSec int
 }
 

@@ -5,13 +5,27 @@
 
 provider "aws" {
   region = var.region
+
+  default_tags {
+    tags = {
+      "gw:repo"    = "https://github.com/gruntwork-io/terratest"
+      "gw:example" = "terraform-aws-rds-example"
+    }
+  }
 }
 
 terraform {
   # This module is now only being tested with Terraform 0.13.x. However, to make upgrading easier, we are setting
-  # 0.12.26 as the minimum version, as that version added support for required_providers with source URLs, making it
+  # 0.12.31 as the minimum version, as that version added support for required_providers with source URLs, making it
   # forwards compatible with 0.13.x code.
-  required_version = ">= 0.12.26"
+  required_version = ">= 0.12.31"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 4.61.0, < 5.0.0"
+    }
+  }
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -25,8 +39,11 @@ data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_subnet_ids" "all" {
-  vpc_id = data.aws_vpc.default.id
+data "aws_subnets" "all" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -35,7 +52,7 @@ data "aws_subnet_ids" "all" {
 
 resource "aws_db_subnet_group" "example" {
   name       = var.name
-  subnet_ids = data.aws_subnet_ids.all.ids
+  subnet_ids = data.aws_subnets.all.ids
 
   tags = {
     Name = var.name
@@ -55,12 +72,15 @@ resource "aws_db_option_group" "example" {
     Name = var.name
   }
 
-  option {
-    option_name = "MARIADB_AUDIT_PLUGIN"
+  dynamic "option" {
+    for_each = var.engine_name == "mysql" ? [1] : []
+    content {
+      option_name = "MARIADB_AUDIT_PLUGIN"
 
-    option_settings {
-      name  = "SERVER_AUDIT_EVENTS"
-      value = "CONNECT"
+      option_settings {
+        name  = "SERVER_AUDIT_EVENTS"
+        value = "CONNECT"
+      }
     }
   }
 }
@@ -73,9 +93,13 @@ resource "aws_db_parameter_group" "example" {
     Name = var.name
   }
 
-  parameter {
-    name  = "general_log"
-    value = "0"
+  dynamic "parameter" {
+    for_each = var.engine_name == "mysql" ? [1] : []
+    content {
+      name  = "general_log"
+      value = "0"
+
+    }
   }
 }
 
@@ -106,7 +130,7 @@ resource "aws_db_instance" "example" {
   engine                 = var.engine_name
   engine_version         = var.engine_version
   port                   = var.port
-  name                   = var.database_name
+  db_name                = var.database_name
   username               = var.username
   password               = var.password
   instance_class         = var.instance_class

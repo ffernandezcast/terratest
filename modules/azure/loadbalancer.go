@@ -2,112 +2,176 @@ package azure
 
 import (
 	"context"
+	"errors"
 
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-09-01/network"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v6"
 	"github.com/gruntwork-io/terratest/modules/testing"
 	"github.com/stretchr/testify/require"
 )
 
 // LoadBalancerExists indicates whether the specified Load Balancer exists.
 // This function would fail the test if there is an error.
+//
+// Deprecated: Use [LoadBalancerExistsContext] instead.
 func LoadBalancerExists(t testing.TestingT, loadBalancerName string, resourceGroupName string, subscriptionID string) bool {
-	exists, err := LoadBalancerExistsE(loadBalancerName, resourceGroupName, subscriptionID)
-	require.NoError(t, err)
-	return exists
+	t.Helper()
+
+	return LoadBalancerExistsContext(t, context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
 }
 
 // LoadBalancerExistsE indicates whether the specified Load Balancer exists.
+//
+// Deprecated: Use [LoadBalancerExistsContextE] instead.
 func LoadBalancerExistsE(loadBalancerName string, resourceGroupName string, subscriptionID string) (bool, error) {
-	_, err := GetLoadBalancerE(loadBalancerName, resourceGroupName, subscriptionID)
+	return LoadBalancerExistsContextE(context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// LoadBalancerExistsContext indicates whether the specified Load Balancer exists.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func LoadBalancerExistsContext(t testing.TestingT, ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) bool {
+	t.Helper()
+
+	exists, err := LoadBalancerExistsContextE(ctx, loadBalancerName, resourceGroupName, subscriptionID)
+	require.NoError(t, err)
+
+	return exists
+}
+
+// LoadBalancerExistsContextE indicates whether the specified Load Balancer exists.
+// The ctx parameter supports cancellation and timeouts.
+func LoadBalancerExistsContextE(ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) (bool, error) {
+	_, err := GetLoadBalancerContextE(ctx, loadBalancerName, resourceGroupName, subscriptionID)
 	if err != nil {
 		if ResourceNotFoundErrorExists(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
 // GetLoadBalancerFrontendIPConfigNames gets a list of the Frontend IP Configuration Names for the Load Balancer.
 // This function would fail the test if there is an error.
+//
+// Deprecated: Use [GetLoadBalancerFrontendIPConfigNamesContext] instead.
 func GetLoadBalancerFrontendIPConfigNames(t testing.TestingT, loadBalancerName string, resourceGroupName string, subscriptionID string) []string {
-	configName, err := GetLoadBalancerFrontendIPConfigNamesE(loadBalancerName, resourceGroupName, subscriptionID)
+	t.Helper()
+
+	return GetLoadBalancerFrontendIPConfigNamesContext(t, context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// GetLoadBalancerFrontendIPConfigNamesE gets a list of the Frontend IP Configuration Names for the Load Balancer.
+//
+// Deprecated: Use [GetLoadBalancerFrontendIPConfigNamesContextE] instead.
+func GetLoadBalancerFrontendIPConfigNamesE(loadBalancerName string, resourceGroupName string, subscriptionID string) ([]string, error) {
+	return GetLoadBalancerFrontendIPConfigNamesContextE(context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// GetLoadBalancerFrontendIPConfigNamesContext gets a list of the Frontend IP Configuration Names for the Load Balancer.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerFrontendIPConfigNamesContext(t testing.TestingT, ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) []string {
+	t.Helper()
+
+	configName, err := GetLoadBalancerFrontendIPConfigNamesContextE(ctx, loadBalancerName, resourceGroupName, subscriptionID)
 	require.NoError(t, err)
+
 	return configName
 }
 
-// GetLoadBalancerFrontendIPConfigNamesE ConfigNamesE gets a list of the Frontend IP Configuration Names for the Load Balancer.
-func GetLoadBalancerFrontendIPConfigNamesE(loadBalancerName string, resourceGroupName string, subscriptionID string) ([]string, error) {
-	lb, err := GetLoadBalancerE(loadBalancerName, resourceGroupName, subscriptionID)
+// GetLoadBalancerFrontendIPConfigNamesContextE gets a list of the Frontend IP Configuration Names for the Load Balancer.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerFrontendIPConfigNamesContextE(ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) ([]string, error) {
+	lb, err := GetLoadBalancerContextE(ctx, loadBalancerName, resourceGroupName, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the Frontend IP Configurations
-	lbProps := lb.LoadBalancerPropertiesFormat
-	feConfigs := *lbProps.FrontendIPConfigurations
-	if len(feConfigs) == 0 {
-		// No Frontend IP Configuration present
-		return nil, nil
-	}
-
-	// Get the names of the Frontend IP Configurations present
-	configNames := make([]string, len(feConfigs))
-	for i, config := range feConfigs {
-		configNames[i] = *config.Name
-	}
-
-	return configNames, nil
+	return ExtractLoadBalancerFrontendIPConfigNames(lb), nil
 }
 
 // GetIPOfLoadBalancerFrontendIPConfig gets the IP and LoadBalancerIPType for the specified Load Balancer Frontend IP Configuration.
 // This function would fail the test if there is an error.
+//
+// Deprecated: Use [GetIPOfLoadBalancerFrontendIPConfigContext] instead.
 func GetIPOfLoadBalancerFrontendIPConfig(t testing.TestingT, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (ipAddress string, publicOrPrivate LoadBalancerIPType) {
-	ipAddress, ipType, err := GetIPOfLoadBalancerFrontendIPConfigE(feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
-	require.NoError(t, err)
-	return ipAddress, ipType
+	t.Helper()
+
+	return GetIPOfLoadBalancerFrontendIPConfigContext(t, context.Background(), feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
 }
 
 // GetIPOfLoadBalancerFrontendIPConfigE gets the IP and LoadBalancerIPType for the specified Load Balancer Frontend IP Configuration.
+//
+// Deprecated: Use [GetIPOfLoadBalancerFrontendIPConfigContextE] instead.
 func GetIPOfLoadBalancerFrontendIPConfigE(feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (ipAddress string, publicOrPrivate LoadBalancerIPType, err1 error) {
+	return GetIPOfLoadBalancerFrontendIPConfigContextE(context.Background(), feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// GetIPOfLoadBalancerFrontendIPConfigContext gets the IP and LoadBalancerIPType for the specified Load Balancer Frontend IP Configuration.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func GetIPOfLoadBalancerFrontendIPConfigContext(t testing.TestingT, ctx context.Context, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (ipAddress string, publicOrPrivate LoadBalancerIPType) {
+	t.Helper()
+
+	ipAddress, ipType, err := GetIPOfLoadBalancerFrontendIPConfigContextE(ctx, feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
+	require.NoError(t, err)
+
+	return ipAddress, ipType
+}
+
+// GetIPOfLoadBalancerFrontendIPConfigContextE gets the IP and LoadBalancerIPType for the specified Load Balancer Frontend IP Configuration.
+// The ctx parameter supports cancellation and timeouts.
+func GetIPOfLoadBalancerFrontendIPConfigContextE(ctx context.Context, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (ipAddress string, publicOrPrivate LoadBalancerIPType, err1 error) {
 	// Get the specified Load Balancer Frontend Config
-	feConfig, err := GetLoadBalancerFrontendIPConfigE(feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
+	feConfig, err := GetLoadBalancerFrontendIPConfigContextE(ctx, feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
 	if err != nil {
 		return "", NoIP, err
 	}
 
-	// Get the Properties of the Frontend Configuration
-	feProps := *feConfig.FrontendIPConfigurationPropertiesFormat
-
-	// Check for the Public Type Frontend Config
-	if feProps.PublicIPAddress != nil {
-		// Get PublicIPAddress resource name from the Load Balancer Frontend Configuration
-		pipName := GetNameFromResourceID(*feProps.PublicIPAddress.ID)
-
-		// Get the Public IP of the PublicIPAddress
-		ipValue, err := GetIPOfPublicIPAddressByNameE(pipName, resourceGroupName, subscriptionID)
-		if err != nil {
-			return "", NoIP, err
-		}
-
-		return ipValue, PublicIP, nil
+	// Resolve the IP using a PIP client for public address lookups
+	pipClient, err := GetPublicIPAddressClientContextE(ctx, subscriptionID)
+	if err != nil {
+		return "", NoIP, err
 	}
 
-	// Return the Private IP as there are no other option available
-	return *feProps.PrivateIPAddress, PrivateIP, nil
-
+	return GetIPOfLoadBalancerFrontendIPConfigWithClient(ctx, feConfig, pipClient, resourceGroupName)
 }
 
 // GetLoadBalancerFrontendIPConfig gets the specified Load Balancer Frontend IP Configuration network resource.
 // This function would fail the test if there is an error.
-func GetLoadBalancerFrontendIPConfig(t testing.TestingT, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) *network.FrontendIPConfiguration {
-	lbFEConfig, err := GetLoadBalancerFrontendIPConfigE(feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
-	require.NoError(t, err)
-	return lbFEConfig
+//
+// Deprecated: Use [GetLoadBalancerFrontendIPConfigContext] instead.
+func GetLoadBalancerFrontendIPConfig(t testing.TestingT, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) *armnetwork.FrontendIPConfiguration {
+	t.Helper()
+
+	return GetLoadBalancerFrontendIPConfigContext(t, context.Background(), feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
 }
 
 // GetLoadBalancerFrontendIPConfigE gets the specified Load Balancer Frontend IP Configuration network resource.
-func GetLoadBalancerFrontendIPConfigE(feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (*network.FrontendIPConfiguration, error) {
+//
+// Deprecated: Use [GetLoadBalancerFrontendIPConfigContextE] instead.
+func GetLoadBalancerFrontendIPConfigE(feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (*armnetwork.FrontendIPConfiguration, error) {
+	return GetLoadBalancerFrontendIPConfigContextE(context.Background(), feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// GetLoadBalancerFrontendIPConfigContext gets the specified Load Balancer Frontend IP Configuration network resource.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerFrontendIPConfigContext(t testing.TestingT, ctx context.Context, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) *armnetwork.FrontendIPConfiguration {
+	t.Helper()
+
+	lbFEConfig, err := GetLoadBalancerFrontendIPConfigContextE(ctx, feConfigName, loadBalancerName, resourceGroupName, subscriptionID)
+	require.NoError(t, err)
+
+	return lbFEConfig
+}
+
+// GetLoadBalancerFrontendIPConfigContextE gets the specified Load Balancer Frontend IP Configuration network resource.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerFrontendIPConfigContextE(ctx context.Context, feConfigName string, loadBalancerName string, resourceGroupName string, subscriptionID string) (*armnetwork.FrontendIPConfiguration, error) {
 	// Validate Azure Resource Group Name
 	resourceGroupName, err := getTargetAzureResourceGroupName(resourceGroupName)
 	if err != nil {
@@ -115,51 +179,70 @@ func GetLoadBalancerFrontendIPConfigE(feConfigName string, loadBalancerName stri
 	}
 
 	// Get the client reference
-	client, err := GetLoadBalancerFrontendIPConfigClientE(subscriptionID)
+	client, err := GetLoadBalancerFrontendIPConfigClientContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the Load Balancer Frontend IP Configuration
-	lbc, err := client.Get(context.Background(), resourceGroupName, loadBalancerName, feConfigName)
+	return GetLoadBalancerFrontendIPConfigWithClient(ctx, client, resourceGroupName, loadBalancerName, feConfigName)
+}
+
+// GetLoadBalancerFrontendIPConfigWithClient gets the specified Load Balancer Frontend IP Configuration
+// using the provided LoadBalancerFrontendIPConfigurationsClient.
+func GetLoadBalancerFrontendIPConfigWithClient(ctx context.Context, client *armnetwork.LoadBalancerFrontendIPConfigurationsClient, resourceGroupName string, loadBalancerName string, feConfigName string) (*armnetwork.FrontendIPConfiguration, error) {
+	resp, err := client.Get(ctx, resourceGroupName, loadBalancerName, feConfigName, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &lbc, nil
+	return &resp.FrontendIPConfiguration, nil
+}
+
+// GetLoadBalancerFrontendIPConfigClientContextE gets a new Load Balancer Frontend IP Configuration client in the specified Azure Subscription.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerFrontendIPConfigClientContextE(ctx context.Context, subscriptionID string) (*armnetwork.LoadBalancerFrontendIPConfigurationsClient, error) {
+	return CreateLoadBalancerFrontendIPConfigClientContextE(ctx, subscriptionID)
 }
 
 // GetLoadBalancerFrontendIPConfigClientE gets a new Load Balancer Frontend IP Configuration client in the specified Azure Subscription.
-func GetLoadBalancerFrontendIPConfigClientE(subscriptionID string) (*network.LoadBalancerFrontendIPConfigurationsClient, error) {
-	// Validate Azure subscription ID
-	subscriptionID, err := getTargetAzureSubscription(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the Load Balancer Frontend Configuration client
-	client := network.NewLoadBalancerFrontendIPConfigurationsClient(subscriptionID)
-
-	// Create an authorizer
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-	client.Authorizer = *authorizer
-
-	return &client, nil
+//
+// Deprecated: Use [GetLoadBalancerFrontendIPConfigClientContextE] instead.
+func GetLoadBalancerFrontendIPConfigClientE(subscriptionID string) (*armnetwork.LoadBalancerFrontendIPConfigurationsClient, error) {
+	return GetLoadBalancerFrontendIPConfigClientContextE(context.Background(), subscriptionID)
 }
 
 // GetLoadBalancer gets a Load Balancer network resource in the specified Azure Resource Group.
 // This function would fail the test if there is an error.
-func GetLoadBalancer(t testing.TestingT, loadBalancerName string, resourceGroupName string, subscriptionID string) *network.LoadBalancer {
-	lb, err := GetLoadBalancerE(loadBalancerName, resourceGroupName, subscriptionID)
-	require.NoError(t, err)
-	return lb
+//
+// Deprecated: Use [GetLoadBalancerContext] instead.
+func GetLoadBalancer(t testing.TestingT, loadBalancerName string, resourceGroupName string, subscriptionID string) *armnetwork.LoadBalancer {
+	t.Helper()
+
+	return GetLoadBalancerContext(t, context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
 }
 
 // GetLoadBalancerE gets a Load Balancer network resource in the specified Azure Resource Group.
-func GetLoadBalancerE(loadBalancerName string, resourceGroupName string, subscriptionID string) (*network.LoadBalancer, error) {
+//
+// Deprecated: Use [GetLoadBalancerContextE] instead.
+func GetLoadBalancerE(loadBalancerName string, resourceGroupName string, subscriptionID string) (*armnetwork.LoadBalancer, error) {
+	return GetLoadBalancerContextE(context.Background(), loadBalancerName, resourceGroupName, subscriptionID)
+}
+
+// GetLoadBalancerContext gets a Load Balancer network resource in the specified Azure Resource Group.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerContext(t testing.TestingT, ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) *armnetwork.LoadBalancer {
+	t.Helper()
+
+	lb, err := GetLoadBalancerContextE(ctx, loadBalancerName, resourceGroupName, subscriptionID)
+	require.NoError(t, err)
+
+	return lb
+}
+
+// GetLoadBalancerContextE gets a Load Balancer network resource in the specified Azure Resource Group.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerContextE(ctx context.Context, loadBalancerName string, resourceGroupName string, subscriptionID string) (*armnetwork.LoadBalancer, error) {
 	// Validate Azure Resource Group Name
 	resourceGroupName, err := getTargetAzureResourceGroupName(resourceGroupName)
 	if err != nil {
@@ -167,34 +250,93 @@ func GetLoadBalancerE(loadBalancerName string, resourceGroupName string, subscri
 	}
 
 	// Get the client reference
-	client, err := GetLoadBalancerClientE(subscriptionID)
+	client, err := GetLoadBalancerClientContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the Load Balancer
-	lb, err := client.Get(context.Background(), resourceGroupName, loadBalancerName, subscriptionID)
+	return GetLoadBalancerWithClient(ctx, client, resourceGroupName, loadBalancerName)
+}
+
+// GetLoadBalancerWithClient gets a Load Balancer using the provided LoadBalancersClient.
+func GetLoadBalancerWithClient(ctx context.Context, client *armnetwork.LoadBalancersClient, resourceGroupName string, loadBalancerName string) (*armnetwork.LoadBalancer, error) {
+	resp, err := client.Get(ctx, resourceGroupName, loadBalancerName, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &lb, nil
+	return &resp.LoadBalancer, nil
+}
+
+// ExtractLoadBalancerFrontendIPConfigNames gets a list of the Frontend IP Configuration Names
+// from a Load Balancer.
+func ExtractLoadBalancerFrontendIPConfigNames(lb *armnetwork.LoadBalancer) []string {
+	if lb == nil || lb.Properties == nil {
+		return nil
+	}
+
+	feConfigs := lb.Properties.FrontendIPConfigurations
+
+	if len(feConfigs) == 0 {
+		return nil
+	}
+
+	configNames := make([]string, 0, len(feConfigs))
+
+	for _, config := range feConfigs {
+		if config == nil || config.Name == nil {
+			continue
+		}
+
+		configNames = append(configNames, *config.Name)
+	}
+
+	return configNames
+}
+
+// GetIPOfLoadBalancerFrontendIPConfigWithClient gets the IP and LoadBalancerIPType for the
+// specified Frontend IP Configuration. For public IPs it requires a PublicIPAddressesClient
+// to resolve the public IP address.
+func GetIPOfLoadBalancerFrontendIPConfigWithClient(ctx context.Context, feConfig *armnetwork.FrontendIPConfiguration, pipClient *armnetwork.PublicIPAddressesClient, resourceGroupName string) (string, LoadBalancerIPType, error) {
+	if feConfig == nil || feConfig.Properties == nil {
+		return "", NoIP, errors.New("frontend IP configuration has nil properties")
+	}
+
+	feProps := feConfig.Properties
+
+	pip := feProps.PublicIPAddress
+	if pip == nil || pip.ID == nil {
+		if feProps.PrivateIPAddress == nil {
+			return "", NoIP, errors.New("frontend IP configuration has no private or public IP address assigned")
+		}
+
+		return *feProps.PrivateIPAddress, PrivateIP, nil
+	}
+
+	pipName := GetNameFromResourceID(*pip.ID)
+
+	ipValue, err := GetPublicIPAddressWithClient(ctx, pipClient, resourceGroupName, pipName)
+	if err != nil {
+		return "", NoIP, err
+	}
+
+	ip, err := ExtractIPOfPublicIPAddress(ipValue)
+	if err != nil {
+		return "", NoIP, err
+	}
+
+	return ip, PublicIP, nil
+}
+
+// GetLoadBalancerClientContextE gets a new Load Balancer client in the specified Azure Subscription.
+// The ctx parameter supports cancellation and timeouts.
+func GetLoadBalancerClientContextE(ctx context.Context, subscriptionID string) (*armnetwork.LoadBalancersClient, error) {
+	return CreateLoadBalancerClientContextE(ctx, subscriptionID)
 }
 
 // GetLoadBalancerClientE gets a new Load Balancer client in the specified Azure Subscription.
-func GetLoadBalancerClientE(subscriptionID string) (*network.LoadBalancersClient, error) {
-	// Get the Load Balancer client
-	client, err := CreateLoadBalancerClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create an authorizer
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-	client.Authorizer = *authorizer
-
-	return client, nil
+//
+// Deprecated: Use [GetLoadBalancerClientContextE] instead.
+func GetLoadBalancerClientE(subscriptionID string) (*armnetwork.LoadBalancersClient, error) {
+	return GetLoadBalancerClientContextE(context.Background(), subscriptionID)
 }

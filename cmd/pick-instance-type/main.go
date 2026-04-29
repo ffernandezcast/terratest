@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gruntwork-io/go-commons/entrypoint"
@@ -30,18 +32,18 @@ Example:
 func run(cliContext *cli.Context) error {
 	region := cliContext.Args().First()
 	if region == "" {
-		return fmt.Errorf("You must specify an AWS region as the first argument")
+		return errors.New("you must specify an AWS region as the first argument")
 	}
 
 	instanceTypes := cliContext.Args().Tail()
 	if len(instanceTypes) == 0 {
-		return fmt.Errorf("You must specify at least one instance type")
+		return errors.New("you must specify at least one instance type")
 	}
 
 	// Create mock testing.T implementation so we can re-use Terratest methods
 	t := MockTestingT{MockName: "pick-instance-type"}
 
-	recommendedInstanceType, err := aws.GetRecommendedInstanceTypeE(t, region, instanceTypes)
+	recommendedInstanceType, err := aws.GetRecommendedInstanceTypeContextE(t, context.Background(), region, instanceTypes)
 	if err != nil {
 		return err
 	}
@@ -77,6 +79,7 @@ func (t MockTestingT) Fatal(args ...interface{})                 {}
 func (t MockTestingT) Fatalf(format string, args ...interface{}) {}
 func (t MockTestingT) Error(args ...interface{})                 {}
 func (t MockTestingT) Errorf(format string, args ...interface{}) {}
+func (t MockTestingT) Helper()                                   {}
 func (t MockTestingT) Name() string {
 	return t.MockName
 }

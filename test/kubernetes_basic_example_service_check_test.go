@@ -1,3 +1,4 @@
+//go:build kubeall || kubernetes
 // +build kubeall kubernetes
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests. This is done because minikube
@@ -6,11 +7,10 @@
 // tests separately from the others. This may not be necessary if you have a sufficiently powerful machine.  We
 // recommend at least 4 cores and 16GB of RAM if you want to run all the tests together.
 
-package test
+package test_test
 
 import (
 	"crypto/tls"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,38 +34,39 @@ func TestKubernetesBasicExampleServiceCheck(t *testing.T) {
 	// To ensure we can reuse the resource config on the same cluster to test different scenarios, we setup a unique
 	// namespace for the resources for this test.
 	// Note that namespaces must be lowercase.
-	namespaceName := strings.ToLower(random.UniqueId())
+	namespaceName := strings.ToLower(random.UniqueID())
 
 	// Setup the kubectl config and context. Here we choose to use the defaults, which is:
 	// - HOME/.kube/config for the kubectl config file
 	// - Current context of the kubectl config file
 	options := k8s.NewKubectlOptions("", "", namespaceName)
 
-	k8s.CreateNamespace(t, options, namespaceName)
+	k8s.CreateNamespaceContext(t, t.Context(), options, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, options, namespaceName)
+	defer k8s.DeleteNamespaceContext(t, t.Context(), options, namespaceName)
 
 	// At the end of the test, run `kubectl delete -f RESOURCE_CONFIG` to clean up any resources that were created.
-	defer k8s.KubectlDelete(t, options, kubeResourcePath)
+	defer k8s.KubectlDeleteContext(t, t.Context(), options, kubeResourcePath)
 
 	// This will run `kubectl apply -f RESOURCE_CONFIG` and fail the test if there are any errors
-	k8s.KubectlApply(t, options, kubeResourcePath)
+	k8s.KubectlApplyContext(t, t.Context(), options, kubeResourcePath)
 
 	// This will wait up to 10 seconds for the service to become available, to ensure that we can access it.
-	k8s.WaitUntilServiceAvailable(t, options, "nginx-service", 10, 1*time.Second)
+	k8s.WaitUntilServiceAvailableContext(t, t.Context(), options, "nginx-service", 10, 1*time.Second)
 
 	// Now we verify that the service will successfully boot and start serving requests
-	service := k8s.GetService(t, options, "nginx-service")
-	endpoint := k8s.GetServiceEndpoint(t, options, service, 80)
+	service := k8s.GetServiceContext(t, t.Context(), options, "nginx-service")
+	endpoint := k8s.GetServiceEndpointContext(t, t.Context(), options, service, 80)
 
 	// Setup a TLS configuration to submit with the helper, a blank struct is acceptable
 	tlsConfig := tls.Config{}
 
 	// Test the endpoint for up to 5 minutes. This will only fail if we timeout waiting for the service to return a 200
 	// response.
-	http_helper.HttpGetWithRetryWithCustomValidation(
+	http_helper.HTTPGetWithRetryWithCustomValidationContext(
 		t,
-		fmt.Sprintf("http://%s", endpoint),
+		t.Context(),
+		"http://"+endpoint,
 		&tlsConfig,
 		30,
 		10*time.Second,

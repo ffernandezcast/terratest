@@ -1,4 +1,6 @@
-package test
+//go:build aws
+
+package test_test
 
 import (
 	"testing"
@@ -11,10 +13,11 @@ import (
 
 func TestTerraformAwsSsmExample(t *testing.T) {
 	t.Parallel()
-	region := aws.GetRandomStableRegion(t, nil, nil)
+
+	region := aws.GetRandomStableRegionContext(t, t.Context(), nil, nil)
 
 	// Some AWS regions are missing certain instance types, so pick an available type based on the region we picked
-	instanceType := aws.GetRecommendedInstanceType(t, region, []string{"t2.micro", "t3.micro"})
+	instanceType := aws.GetRecommendedInstanceTypeContext(t, t.Context(), region, []string{"t2.micro, t3.micro", "t2.small", "t3.small"})
 
 	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
 		TerraformDir: "../examples/terraform-aws-ssm-example",
@@ -23,24 +26,25 @@ func TestTerraformAwsSsmExample(t *testing.T) {
 			"instance_type": instanceType,
 		},
 	})
-	defer terraform.Destroy(t, terraformOptions)
 
-	terraform.InitAndApply(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
-	instanceID := terraform.Output(t, terraformOptions, "instance_id")
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
+
+	instanceID := terraform.OutputContext(t, t.Context(), terraformOptions, "instance_id")
 	timeout := 3 * time.Minute
 
-	aws.WaitForSsmInstance(t, region, instanceID, timeout)
+	aws.WaitForSsmInstanceContext(t, t.Context(), region, instanceID, timeout)
 
-	result := aws.CheckSsmCommand(t, region, instanceID, "echo Hello, World", timeout)
-	require.Equal(t, result.Stdout, "Hello, World\n")
-	require.Equal(t, result.Stderr, "")
+	result := aws.CheckSsmCommandContext(t, t.Context(), region, instanceID, "echo Hello, World", timeout)
+	require.Equal(t, "Hello, World\n", result.Stdout)
+	require.Empty(t, result.Stderr)
 	require.Equal(t, int64(0), result.ExitCode)
 
-	result, err := aws.CheckSsmCommandE(t, region, instanceID, "cat /wrong/file", timeout)
+	result, err := aws.CheckSsmCommandContextE(t, t.Context(), region, instanceID, "cat /wrong/file", timeout)
 	require.Error(t, err)
 	require.Equal(t, "Failed", err.Error())
 	require.Equal(t, "cat: /wrong/file: No such file or directory\nfailed to run commands: exit status 1", result.Stderr)
-	require.Equal(t, "", result.Stdout)
+	require.Empty(t, result.Stdout)
 	require.Equal(t, int64(1), result.ExitCode)
 }

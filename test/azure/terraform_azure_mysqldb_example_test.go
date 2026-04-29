@@ -1,16 +1,17 @@
+//go:build azure
 // +build azure
 
 // NOTE: We use build tags to differentiate azure testing because we currently do not have azure access setup for
 // CircleCI.
 
-package test
+package test_test
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/profiles/latest/mysql/mgmt/mysql"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/mysql/armmysql"
 	"github.com/gruntwork-io/terratest/modules/azure"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
@@ -20,7 +21,7 @@ import (
 func TestTerraformAzureMySQLDBExample(t *testing.T) {
 	t.Parallel()
 
-	uniquePostfix := strings.ToLower(random.UniqueId())
+	uniquePostfix := strings.ToLower(random.UniqueID())
 	expectedServerSkuName := "GP_Gen5_2"
 	expectedServerStoragemMb := "5120"
 	expectedDatabaseCharSet := "utf8"
@@ -39,28 +40,28 @@ func TestTerraformAzureMySQLDBExample(t *testing.T) {
 	}
 
 	// website::tag::4:: At the end of the test, run `terraform destroy` to clean up any resources that were created
-	defer terraform.Destroy(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
 	// website::tag::2:: Run `terraform init` and `terraform apply`. Fail the test if there are any errors.
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// website::tag::3:: Run `terraform output` to get the values of output variables
-	expectedResourceGroupName := terraform.Output(t, terraformOptions, "resource_group_name")
-	expectedMYSQLServerName := terraform.Output(t, terraformOptions, "mysql_server_name")
+	expectedResourceGroupName := terraform.OutputContext(t, t.Context(), terraformOptions, "resource_group_name")
+	expectedMYSQLServerName := terraform.OutputContext(t, t.Context(), terraformOptions, "mysql_server_name")
 
-	expectedMYSQLDBName := terraform.Output(t, terraformOptions, "mysql_database_name")
+	expectedMYSQLDBName := terraform.OutputContext(t, t.Context(), terraformOptions, "mysql_database_name")
 
 	// website::tag::4:: Get mySQL server details and assert them against the terraform output
-	actualMYSQLServer := azure.GetMYSQLServer(t, expectedResourceGroupName, expectedMYSQLServerName, "")
+	actualMYSQLServer := azure.GetMYSQLServerContext(t, t.Context(), "", expectedResourceGroupName, expectedMYSQLServerName)
 
-	assert.Equal(t, expectedServerSkuName, *actualMYSQLServer.Sku.Name)
-	assert.Equal(t, expectedServerStoragemMb, fmt.Sprint(*actualMYSQLServer.ServerProperties.StorageProfile.StorageMB))
+	assert.Equal(t, expectedServerSkuName, *actualMYSQLServer.SKU.Name)
+	assert.Equal(t, expectedServerStoragemMb, strconv.Itoa(int(*actualMYSQLServer.Properties.StorageProfile.StorageMB)))
 
-	assert.Equal(t, mysql.ServerStateReady, actualMYSQLServer.ServerProperties.UserVisibleState)
+	assert.Equal(t, armmysql.ServerStateReady, *actualMYSQLServer.Properties.UserVisibleState)
 
 	// website::tag::5:: Get  mySQL server DB details and assert them against the terraform output
-	actualDatabase := azure.GetMYSQLDB(t, expectedResourceGroupName, expectedMYSQLServerName, expectedMYSQLDBName, "")
+	actualDatabase := azure.GetMYSQLDBContext(t, t.Context(), "", expectedResourceGroupName, expectedMYSQLServerName, expectedMYSQLDBName)
 
-	assert.Equal(t, expectedDatabaseCharSet, *actualDatabase.DatabaseProperties.Charset)
-	assert.Equal(t, expectedDatabaseCollation, *actualDatabase.DatabaseProperties.Collation)
+	assert.Equal(t, expectedDatabaseCharSet, *actualDatabase.Properties.Charset)
+	assert.Equal(t, expectedDatabaseCollation, *actualDatabase.Properties.Collation)
 }

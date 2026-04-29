@@ -1,9 +1,10 @@
+//go:build azure
 // +build azure
 
 // NOTE: We use build tags to differentiate azure testing because we currently do not have azure access setup for
 // CircleCI.
 
-package test
+package test_test
 
 import (
 	"os"
@@ -19,7 +20,7 @@ import (
 func TestTerraformAzureServiceBusExample(t *testing.T) {
 	t.Parallel()
 
-	uniquePostfix := strings.ToLower(random.UniqueId())
+	uniquePostfix := strings.ToLower(random.UniqueID())
 
 	// website::tag::1:: Configure Terraform setting up a path to Terraform code.
 	terraformOptions := &terraform.Options{
@@ -31,18 +32,18 @@ func TestTerraformAzureServiceBusExample(t *testing.T) {
 	}
 
 	// website::tag::4:: At the end of the test, run `terraform destroy` to clean up any resources that were created
-	defer terraform.Destroy(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
 	// website::tag::2:: Run `terraform init` and `terraform apply`. Fail the test if there are any errors.
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// website::tag::3:: Run `terraform output` to get the values of output variables
-	expectedTopicSubscriptionsMap := terraform.OutputMapOfObjects(t, terraformOptions, "topics")
-	expectedNamespaceName := terraform.Output(t, terraformOptions, "namespace_name")
-	expectedResourceGroup := terraform.Output(t, terraformOptions, "resource_group")
+	expectedTopicSubscriptionsMap := terraform.OutputMapOfObjectsContext(t, t.Context(), terraformOptions, "topics")
+	expectedNamespaceName := terraform.OutputContext(t, t.Context(), terraformOptions, "namespace_name")
+	expectedResourceGroup := terraform.OutputContext(t, t.Context(), terraformOptions, "resource_group")
 
 	for topicName, topicsMap := range expectedTopicSubscriptionsMap {
-		actualsubscriptionNames := azure.ListTopicSubscriptionsName(t,
+		actualsubscriptionNames := azure.ListTopicSubscriptionsNameContext(t, t.Context(),
 			os.Getenv("ARM_SUBSCRIPTION_ID"),
 			expectedNamespaceName,
 			expectedResourceGroup,
@@ -51,7 +52,8 @@ func TestTerraformAzureServiceBusExample(t *testing.T) {
 		subscriptionsMap := topicsMap.(map[string]interface{})["subscriptions"].(map[string]interface{})
 		subscriptionNamesFromOutput := getMapKeylist(subscriptionsMap)
 		// each subscription from the output should also exist in Azure
-		assert.Equal(t, len(subscriptionNamesFromOutput), len(actualsubscriptionNames))
+		assert.Len(t, actualsubscriptionNames, len(subscriptionNamesFromOutput))
+
 		for _, subscrptionName := range subscriptionNamesFromOutput {
 			assert.Contains(t, actualsubscriptionNames, subscrptionName)
 		}
@@ -59,9 +61,10 @@ func TestTerraformAzureServiceBusExample(t *testing.T) {
 }
 
 func getMapKeylist(mapList map[string]interface{}) []string {
-	names := make([]string, 0)
+	names := make([]string, 0, len(mapList))
 	for key := range mapList {
 		names = append(names, key)
 	}
+
 	return names
 }

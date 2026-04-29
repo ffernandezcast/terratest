@@ -1,3 +1,4 @@
+//go:build kubernetes
 // +build kubernetes
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests. This is done because minikube
@@ -6,13 +7,15 @@
 // tests separately from the others. This may not be necessary if you have a sufficiently powerful machine.  We
 // recommend at least 4 cores and 16GB of RAM if you want to run all the tests together.
 
-package k8s
+package k8s_test
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gruntwork-io/terratest/modules/k8s"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,55 +28,58 @@ const ExampleIngressName = "nginx-service-ingress"
 func TestGetIngressEReturnsErrorForNonExistantIngress(t *testing.T) {
 	t.Parallel()
 
-	options := NewKubectlOptions("", "", "default")
-	_, err := GetIngressV1Beta1E(t, options, "i-dont-exist")
+	options := k8s.NewKubectlOptions("", "", "default")
+	_, err := k8s.GetIngressE(t, options, "i-dont-exist")
 	require.Error(t, err)
 }
 
 func TestGetIngressEReturnsCorrectIngressInCorrectNamespace(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_INGRESS_DEPLOYMENT_YAML_TEMPLATE, uniqueID, uniqueID, uniqueID, uniqueID)
-	KubectlApplyFromString(t, options, configData)
-	defer KubectlDeleteFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
+	configData := fmt.Sprintf(exampleIngressDeploymentYamlTemplate, uniqueID, uniqueID, uniqueID, uniqueID, uniqueID)
 
-	service := GetIngressV1Beta1(t, options, "nginx-service-ingress")
-	require.Equal(t, service.Name, "nginx-service-ingress")
+	k8s.KubectlApplyFromString(t, options, configData)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	service := k8s.GetIngress(t, options, "nginx-service-ingress")
+	require.Equal(t, "nginx-service-ingress", service.Name)
 	require.Equal(t, service.Namespace, uniqueID)
 }
 
 func TestListIngressesReturnsCorrectIngressInCorrectNamespace(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_INGRESS_DEPLOYMENT_YAML_TEMPLATE, uniqueID, uniqueID, uniqueID, uniqueID)
-	KubectlApplyFromString(t, options, configData)
-	defer KubectlDeleteFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
+	configData := fmt.Sprintf(exampleIngressDeploymentYamlTemplate, uniqueID, uniqueID, uniqueID, uniqueID, uniqueID)
 
-	ingresses := ListIngressesV1Beta1(t, options, metav1.ListOptions{})
-	require.Equal(t, len(ingresses), 1)
+	k8s.KubectlApplyFromString(t, options, configData)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	ingresses := k8s.ListIngresses(t, options, metav1.ListOptions{})
+	require.Len(t, ingresses, 1)
 
 	ingress := ingresses[0]
-	require.Equal(t, ingress.Name, ExampleIngressName)
+	require.Equal(t, ExampleIngressName, ingress.Name)
 	require.Equal(t, ingress.Namespace, uniqueID)
 }
 
 func TestWaitUntilIngressAvailableReturnsSuccessfully(t *testing.T) {
 	t.Parallel()
 
-	uniqueID := strings.ToLower(random.UniqueId())
-	options := NewKubectlOptions("", "", uniqueID)
-	configData := fmt.Sprintf(EXAMPLE_INGRESS_DEPLOYMENT_YAML_TEMPLATE, uniqueID, uniqueID, uniqueID, uniqueID)
-	KubectlApplyFromString(t, options, configData)
-	defer KubectlDeleteFromString(t, options, configData)
+	uniqueID := strings.ToLower(random.UniqueID())
+	options := k8s.NewKubectlOptions("", "", uniqueID)
+	configData := fmt.Sprintf(exampleIngressDeploymentYamlTemplate, uniqueID, uniqueID, uniqueID, uniqueID, uniqueID)
 
-	WaitUntilIngressAvailableV1Beta1(t, options, ExampleIngressName, 60, 5*time.Second)
+	k8s.KubectlApplyFromString(t, options, configData)
+	defer k8s.KubectlDeleteFromString(t, options, configData)
+
+	k8s.WaitUntilIngressAvailable(t, options, ExampleIngressName, 60, 5*time.Second)
 }
 
-const EXAMPLE_INGRESS_DEPLOYMENT_YAML_TEMPLATE = `---
+const exampleIngressDeploymentYamlTemplate = `---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -115,7 +121,7 @@ spec:
   type: NodePort
 ---
 kind: Ingress
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 metadata:
   name: nginx-service-ingress
   namespace: %s
@@ -123,8 +129,11 @@ spec:
   rules:
   - http:
       paths:
-      - path: /app
+      - path: /app-%s
+        pathType: Prefix
         backend:
-          serviceName: nginx-service
-          servicePort: 80
+          service:
+            name: nginx-service
+            port:
+              number: 80
 `

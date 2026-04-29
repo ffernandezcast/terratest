@@ -2,14 +2,16 @@
 package files
 
 import (
-	"fmt"
-	"io/ioutil"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/mattn/go-zglob"
 )
+
+const defaultDirPermissions = 0o755
 
 // FileExists returns true if the given file exists.
 func FileExists(path string) bool {
@@ -21,9 +23,10 @@ func FileExists(path string) bool {
 // It will return an error if os.Stat error is not an ErrNotExist
 func FileExistsE(path string) (bool, error) {
 	_, err := os.Stat(path)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
+
 	return err == nil, nil
 }
 
@@ -39,18 +42,27 @@ func IsExistingDir(path string) bool {
 	return err == nil && fileInfo.IsDir()
 }
 
-// CopyTerraformFolderToTemp creates a copy of the given folder and all its contents in a temp folder with a unique name and the given prefix.
+// CopyTerraformFolderToDest creates a copy of the given folder and all its contents in a specified folder with a unique name and the given prefix.
 // This is useful when running multiple tests in parallel against the same set of Terraform files to ensure the
 // tests don't overwrite each other's .terraform working directory and terraform.tfstate files. This method returns
-// the path to the temp folder with the copied contents. Hidden files and folders, Terraform state files, and
-// terraform.tfvars files are not copied to this temp folder, as you typically don't want them interfering with your
-// tests.
-func CopyTerraformFolderToTemp(folderPath string, tempFolderPrefix string) (string, error) {
+// the path to the dest folder with the copied contents. Hidden files and folders (with the exception of the `.terraform-version` files used
+// by the [mise tool](https://github.com/jdx/mise) and `.terraform.lock.hcl` used by Terraform to lock providers versions), Terraform state
+// files, and terraform.tfvars files are not copied to this temp folder, as you typically don't want them interfering with your tests.
+// This method is useful when running through a build tool so the files are copied to a destination that is cleaned on each run of the pipeline.
+func CopyTerraformFolderToDest(folderPath string, destRootFolder string, tempFolderPrefix string) (string, error) {
 	filter := func(path string) bool {
-		return !PathContainsHiddenFileOrFolder(path) && !PathContainsTerraformStateOrVars(path)
+		if PathIsTerraformVersionFile(path) || PathIsTerraformLockFile(path) {
+			return true
+		}
+
+		if PathContainsHiddenFileOrFolder(path) || PathContainsTerraformStateOrVars(path) {
+			return false
+		}
+
+		return true
 	}
 
-	destFolder, err := CopyFolderToTemp(folderPath, tempFolderPrefix, filter)
+	destFolder, err := CopyFolderToDest(folderPath, destRootFolder, tempFolderPrefix, filter)
 	if err != nil {
 		return "", err
 	}
@@ -58,15 +70,20 @@ func CopyTerraformFolderToTemp(folderPath string, tempFolderPrefix string) (stri
 	return destFolder, nil
 }
 
-// CopyTerragruntFolderToTemp creates a copy of the given folder and all its contents in a temp folder with a unique name and the given prefix.
-// Since terragrunt uses tfvars files to specify modules, they are copied to the temporary directory as well.
+// CopyTerraformFolderToTemp calls CopyTerraformFolderToDest, passing os.TempDir() as the root destination folder.
+func CopyTerraformFolderToTemp(folderPath string, tempFolderPrefix string) (string, error) {
+	return CopyTerraformFolderToDest(folderPath, os.TempDir(), tempFolderPrefix)
+}
+
+// CopyTerragruntFolderToDest creates a copy of the given folder and all its contents in a specified folder with a unique name and the given prefix.
+// Since terragrunt uses tfvars files to specify modules, they are copied to the directory as well.
 // Terraform state files are excluded as well as .terragrunt-cache to avoid overwriting contents.
-func CopyTerragruntFolderToTemp(folderPath string, tempFolderPrefix string) (string, error) {
+func CopyTerragruntFolderToDest(folderPath string, destRootFolder string, tempFolderPrefix string) (string, error) {
 	filter := func(path string) bool {
 		return !PathContainsHiddenFileOrFolder(path) && !PathContainsTerraformState(path)
 	}
 
-	destFolder, err := CopyFolderToTemp(folderPath, tempFolderPrefix, filter)
+	destFolder, err := CopyFolderToDest(folderPath, destRootFolder, tempFolderPrefix, filter)
 	if err != nil {
 		return "", err
 	}
@@ -74,18 +91,33 @@ func CopyTerragruntFolderToTemp(folderPath string, tempFolderPrefix string) (str
 	return destFolder, nil
 }
 
-// CopyFolderToTemp creates a copy of the given folder and all its filtered contents in a temp folder
+// CopyTerragruntFolderToTemp calls CopyTerragruntFolderToDest, passing os.TempDir() as the root destination folder.
+func CopyTerragruntFolderToTemp(folderPath string, tempFolderPrefix string) (string, error) {
+	return CopyTerragruntFolderToDest(folderPath, os.TempDir(), tempFolderPrefix)
+}
+
+// CopyFolderToDest creates a copy of the given folder and all its filtered contents in a temp folder
 // with a unique name and the given prefix.
-func CopyFolderToTemp(folderPath string, tempFolderPrefix string, filter func(path string) bool) (string, error) {
+func CopyFolderToDest(folderPath string, destRootFolder string, tempFolderPrefix string, filter func(path string) bool) (string, error) {
+	destRootExists, err := FileExistsE(destRootFolder)
+	if err != nil {
+		return "", err
+	}
+
+	if !destRootExists {
+		return "", DirNotFoundError{Directory: destRootFolder}
+	}
+
 	exists, err := FileExistsE(folderPath)
 	if err != nil {
 		return "", err
 	}
+
 	if !exists {
 		return "", DirNotFoundError{Directory: folderPath}
 	}
 
-	tmpDir, err := ioutil.TempDir("", tempFolderPrefix)
+	tmpDir, err := os.MkdirTemp(destRootFolder, tempFolderPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -95,10 +127,11 @@ func CopyFolderToTemp(folderPath string, tempFolderPrefix string, filter func(pa
 	if err != nil {
 		return "", err
 	}
+
 	folderName := filepath.Base(absFolderPath)
 	destFolder := filepath.Join(tmpDir, folderName)
 
-	if err := os.MkdirAll(destFolder, 0777); err != nil {
+	if err := os.MkdirAll(destFolder, defaultDirPermissions); err != nil {
 		return "", err
 	}
 
@@ -107,6 +140,11 @@ func CopyFolderToTemp(folderPath string, tempFolderPrefix string, filter func(pa
 	}
 
 	return destFolder, nil
+}
+
+// CopyFolderToTemp calls CopyFolderToDest, passing os.TempDir() as the root destination folder.
+func CopyFolderToTemp(folderPath string, tempFolderPrefix string, filter func(path string) bool) (string, error) {
+	return CopyFolderToDest(folderPath, os.TempDir(), tempFolderPrefix, filter)
 }
 
 // CopyFolderContents copies all the files and folders within the given source folder to the destination folder.
@@ -119,7 +157,7 @@ func CopyFolderContents(source string, destination string) error {
 // CopyFolderContentsWithFilter copies the files and folders within the given source folder that pass the given filter (return true) to the
 // destination folder.
 func CopyFolderContentsWithFilter(source string, destination string, filter func(path string) bool) error {
-	files, err := ioutil.ReadDir(source)
+	files, err := os.ReadDir(source)
 	if err != nil {
 		return err
 	}
@@ -127,23 +165,26 @@ func CopyFolderContentsWithFilter(source string, destination string, filter func
 	for _, file := range files {
 		src := filepath.Join(source, file.Name())
 		dest := filepath.Join(destination, file.Name())
+		f, _ := file.Info()
 
 		if !filter(src) {
 			continue
-		} else if file.IsDir() {
-			if err := os.MkdirAll(dest, file.Mode()); err != nil {
+		}
+
+		switch {
+		case file.IsDir():
+			if err := os.MkdirAll(dest, f.Mode()); err != nil {
 				return err
 			}
 
 			if err := CopyFolderContentsWithFilter(src, dest, filter); err != nil {
 				return err
 			}
-
-		} else if isSymLink(file) {
-			if err := copySymLink(src, dest); err != nil {
+		case isSymLink(f):
+			if err := copySymlink(src, dest); err != nil {
 				return err
 			}
-		} else {
+		default:
 			if err := CopyFile(src, dest); err != nil {
 				return err
 			}
@@ -167,18 +208,28 @@ func PathContainsTerraformState(path string) bool {
 
 // PathContainsHiddenFileOrFolder returns true if the given path contains a hidden file or folder.
 func PathContainsHiddenFileOrFolder(path string) bool {
-	pathParts := strings.Split(path, string(filepath.Separator))
-	for _, pathPart := range pathParts {
+	for pathPart := range strings.SplitSeq(path, string(filepath.Separator)) {
 		if strings.HasPrefix(pathPart, ".") && pathPart != "." && pathPart != ".." {
 			return true
 		}
 	}
+
 	return false
+}
+
+// PathIsTerraformVersionFile returns true if the given path is the special '.terraform-version' file used by the [mise](https://github.com/jdx/mise) tool.
+func PathIsTerraformVersionFile(path string) bool {
+	return filepath.Base(path) == ".terraform-version"
+}
+
+// PathIsTerraformLockFile return true if the given path is the special '.terraform.lock.hcl' file used by Terraform to lock providers versions
+func PathIsTerraformLockFile(path string) bool {
+	return filepath.Base(path) == ".terraform.lock.hcl"
 }
 
 // CopyFile copies a file from source to destination.
 func CopyFile(source string, destination string) error {
-	contents, err := ioutil.ReadFile(source)
+	contents, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
@@ -193,7 +244,7 @@ func WriteFileWithSamePermissions(source string, destination string, contents []
 		return err
 	}
 
-	return ioutil.WriteFile(destination, contents, fileInfo.Mode())
+	return os.WriteFile(destination, contents, fileInfo.Mode())
 }
 
 // isSymLink returns true if the given file is a symbolic link
@@ -202,37 +253,35 @@ func isSymLink(file os.FileInfo) bool {
 	return file.Mode()&os.ModeSymlink != 0
 }
 
-// copySymLink copies the source symbolic link to the given destination.
-func copySymLink(source string, destination string) error {
+// copySymlink copies the source symbolic link to the given destination.
+func copySymlink(source string, destination string) error {
 	symlinkPath, err := os.Readlink(source)
 	if err != nil {
 		return err
 	}
 
-	err = os.Symlink(symlinkPath, destination)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.Symlink(symlinkPath, destination)
 }
 
 // FindTerraformSourceFilesInDir given a directory path, finds all the terraform source files contained in it. This will
 // recursively search subdirectories, but will ignore any hidden files (which in turn ignores terraform data dirs like
 // .terraform folder).
 func FindTerraformSourceFilesInDir(dirPath string) ([]string, error) {
-	pattern := fmt.Sprintf("%s/**/*.tf", dirPath)
+	pattern := dirPath + "/**/*.tf"
+
 	matches, err := zglob.Glob(pattern)
 	if err != nil {
 		return nil, err
 	}
 
 	tfFiles := []string{}
+
 	for _, match := range matches {
 		// Don't include hidden .terraform directories when finding paths to validate
 		if !PathContainsHiddenFileOrFolder(match) {
 			tfFiles = append(tfFiles, match)
 		}
 	}
+
 	return tfFiles, nil
 }

@@ -1,18 +1,17 @@
-package test
+package test_test
 
 import (
 	"crypto/tls"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/gruntwork-io/terratest/modules/aws"
-	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
+	httpHelper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/packer"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
-	test_structure "github.com/gruntwork-io/terratest/modules/test-structure"
+	testStructure "github.com/gruntwork-io/terratest/modules/test-structure"
 )
 
 // This is a complicated, end-to-end integration test. It builds the AMI from examples/packer-docker-example,
@@ -27,47 +26,49 @@ func TestTerraformPackerExample(t *testing.T) {
 	workingDir := "../examples/terraform-packer-example"
 
 	// At the end of the test, delete the AMI
-	defer test_structure.RunTestStage(t, "cleanup_ami", func() {
-		awsRegion := test_structure.LoadString(t, workingDir, "awsRegion")
+	defer testStructure.RunTestStage(t, "cleanup_ami", func() {
+		awsRegion := testStructure.LoadString(t, workingDir, "awsRegion")
 		deleteAMI(t, awsRegion, workingDir)
 	})
 
 	// At the end of the test, undeploy the web app using Terraform
-	defer test_structure.RunTestStage(t, "cleanup_terraform", func() {
+	defer testStructure.RunTestStage(t, "cleanup_terraform", func() {
 		undeployUsingTerraform(t, workingDir)
 	})
 
 	// At the end of the test, fetch the most recent syslog entries from each Instance. This can be useful for
 	// debugging issues without having to manually SSH to the server.
-	defer test_structure.RunTestStage(t, "logs", func() {
-		awsRegion := test_structure.LoadString(t, workingDir, "awsRegion")
+	defer testStructure.RunTestStage(t, "logs", func() {
+		awsRegion := testStructure.LoadString(t, workingDir, "awsRegion")
 		fetchSyslogForInstance(t, awsRegion, workingDir)
 	})
 
 	// Build the AMI for the web app
-	test_structure.RunTestStage(t, "build_ami", func() {
+	testStructure.RunTestStage(t, "build_ami", func() {
 		// Pick a random AWS region to test in. This helps ensure your code works in all regions.
-		awsRegion := aws.GetRandomStableRegion(t, nil, nil)
-		test_structure.SaveString(t, workingDir, "awsRegion", awsRegion)
+		awsRegion := aws.GetRandomStableRegionContext(t, t.Context(), nil, nil)
+		testStructure.SaveString(t, workingDir, "awsRegion", awsRegion)
 		buildAMI(t, awsRegion, workingDir)
 	})
 
 	// Deploy the web app using Terraform
-	test_structure.RunTestStage(t, "deploy_terraform", func() {
-		awsRegion := test_structure.LoadString(t, workingDir, "awsRegion")
+	testStructure.RunTestStage(t, "deploy_terraform", func() {
+		awsRegion := testStructure.LoadString(t, workingDir, "awsRegion")
 		deployUsingTerraform(t, awsRegion, workingDir)
 	})
 
 	// Validate that the web app deployed and is responding to HTTP requests
-	test_structure.RunTestStage(t, "validate", func() {
+	testStructure.RunTestStage(t, "validate", func() {
 		validateInstanceRunningWebServer(t, workingDir)
 	})
 }
 
 // Build the AMI in packer-docker-example
 func buildAMI(t *testing.T, awsRegion string, workingDir string) {
+	t.Helper()
+
 	// Some AWS regions are missing certain instance types, so pick an available type based on the region we picked
-	instanceType := aws.GetRecommendedInstanceType(t, awsRegion, []string{"t2.micro", "t3.micro"})
+	instanceType := aws.GetRecommendedInstanceTypeContext(t, t.Context(), awsRegion, []string{"t2.micro, t3.micro", "t2.small", "t3.small"})
 
 	packerOptions := &packer.Options{
 		// The path to where the Packer template is located
@@ -89,41 +90,45 @@ func buildAMI(t *testing.T, awsRegion string, workingDir string) {
 	}
 
 	// Save the Packer Options so future test stages can use them
-	test_structure.SavePackerOptions(t, workingDir, packerOptions)
+	testStructure.SavePackerOptions(t, workingDir, packerOptions)
 
 	// Build the AMI
-	amiID := packer.BuildArtifact(t, packerOptions)
+	amiID := packer.BuildArtifactContext(t, t.Context(), packerOptions)
 
 	// Save the AMI ID so future test stages can use them
-	test_structure.SaveAmiId(t, workingDir, amiID)
+	testStructure.SaveArtifactID(t, workingDir, amiID)
 }
 
 // Delete the AMI
 func deleteAMI(t *testing.T, awsRegion string, workingDir string) {
-	// Load the AMI ID and Packer Options saved by the earlier build_ami stage
-	amiID := test_structure.LoadAmiId(t, workingDir)
+	t.Helper()
 
-	aws.DeleteAmi(t, awsRegion, amiID)
+	// Load the AMI ID and Packer Options saved by the earlier build_ami stage
+	amiID := testStructure.LoadArtifactID(t, workingDir)
+
+	aws.DeleteAmiContext(t, t.Context(), awsRegion, amiID)
 }
 
 // Deploy the terraform-packer-example using Terraform
 func deployUsingTerraform(t *testing.T, awsRegion string, workingDir string) {
+	t.Helper()
+
 	// A unique ID we can use to namespace resources so we don't clash with anything already in the AWS account or
 	// tests running in parallel
-	uniqueID := random.UniqueId()
+	uniqueID := random.UniqueID()
 
 	// Give this EC2 Instance and other resources in the Terraform code a name with a unique ID so it doesn't clash
 	// with anything else in the AWS account.
-	instanceName := fmt.Sprintf("terratest-http-example-%s", uniqueID)
+	instanceName := "terratest-http-example-" + uniqueID
 
 	// Specify the text the EC2 Instance will return when we make HTTP requests to it.
-	instanceText := fmt.Sprintf("Hello, %s!", uniqueID)
+	instanceText := "Hello, " + uniqueID + "!"
 
 	// Some AWS regions are missing certain instance types, so pick an available type based on the region we picked
-	instanceType := aws.GetRecommendedInstanceType(t, awsRegion, []string{"t2.micro", "t3.micro"})
+	instanceType := aws.GetRecommendedInstanceTypeContext(t, t.Context(), awsRegion, []string{"t2.micro, t3.micro", "t2.small", "t3.small"})
 
 	// Load the AMI ID saved by the earlier build_ami stage
-	amiID := test_structure.LoadAmiId(t, workingDir)
+	amiID := testStructure.LoadArtifactID(t, workingDir)
 
 	// Construct the terraform options with default retryable errors to handle the most common retryable errors in
 	// terraform testing.
@@ -142,39 +147,45 @@ func deployUsingTerraform(t *testing.T, awsRegion string, workingDir string) {
 	})
 
 	// Save the Terraform Options struct, instance name, and instance text so future test stages can use it
-	test_structure.SaveTerraformOptions(t, workingDir, terraformOptions)
+	testStructure.SaveTerraformOptions(t, workingDir, terraformOptions)
 
 	// This will run `terraform init` and `terraform apply` and fail the test if there are any errors
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 }
 
 // Undeploy the terraform-packer-example using Terraform
 func undeployUsingTerraform(t *testing.T, workingDir string) {
-	// Load the Terraform Options saved by the earlier deploy_terraform stage
-	terraformOptions := test_structure.LoadTerraformOptions(t, workingDir)
+	t.Helper()
 
-	terraform.Destroy(t, terraformOptions)
+	// Load the Terraform Options saved by the earlier deploy_terraform stage
+	terraformOptions := testStructure.LoadTerraformOptions(t, workingDir)
+
+	terraform.DestroyContext(t, t.Context(), terraformOptions)
 }
 
 // Fetch the most recent syslogs for the instance. This is a handy way to see what happened on the Instance as part of
 // your test log output, without having to re-run the test and manually SSH to the Instance.
 func fetchSyslogForInstance(t *testing.T, awsRegion string, workingDir string) {
+	t.Helper()
+
 	// Load the Terraform Options saved by the earlier deploy_terraform stage
-	terraformOptions := test_structure.LoadTerraformOptions(t, workingDir)
+	terraformOptions := testStructure.LoadTerraformOptions(t, workingDir)
 
-	instanceID := terraform.OutputRequired(t, terraformOptions, "instance_id")
-	logs := aws.GetSyslogForInstance(t, instanceID, awsRegion)
+	instanceID := terraform.OutputRequiredContext(t, t.Context(), terraformOptions, "instance_id")
+	logs := aws.GetSyslogForInstanceContext(t, t.Context(), instanceID, awsRegion)
 
-	logger.Logf(t, "Most recent syslog for Instance %s:\n\n%s\n", instanceID, logs)
+	logger.Default.Logf(t, "Most recent syslog for Instance %s:\n\n%s\n", instanceID, logs)
 }
 
 // Validate the web server has been deployed and is working
 func validateInstanceRunningWebServer(t *testing.T, workingDir string) {
+	t.Helper()
+
 	// Load the Terraform Options saved by the earlier deploy_terraform stage
-	terraformOptions := test_structure.LoadTerraformOptions(t, workingDir)
+	terraformOptions := testStructure.LoadTerraformOptions(t, workingDir)
 
 	// Run `terraform output` to get the value of an output variable
-	instanceURL := terraform.Output(t, terraformOptions, "instance_url")
+	instanceURL := terraform.OutputContext(t, t.Context(), terraformOptions, "instance_url")
 
 	// Setup a TLS configuration to submit with the helper, a blank struct is acceptable
 	tlsConfig := tls.Config{}
@@ -187,5 +198,5 @@ func validateInstanceRunningWebServer(t *testing.T, workingDir string) {
 	timeBetweenRetries := 5 * time.Second
 
 	// Verify that we get back a 200 OK with the expected instanceText
-	http_helper.HttpGetWithRetry(t, instanceURL, &tlsConfig, 200, instanceText, maxRetries, timeBetweenRetries)
+	httpHelper.HTTPGetWithRetryContext(t, t.Context(), instanceURL, &tlsConfig, 200, instanceText, maxRetries, timeBetweenRetries)
 }

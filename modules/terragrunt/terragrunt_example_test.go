@@ -1,0 +1,110 @@
+package terragrunt_test
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gruntwork-io/terratest/modules/files"
+	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/gruntwork-io/terratest/modules/terragrunt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// This file demonstrates two approaches for testing Terragrunt configurations:
+//
+// 1. UNIT TESTING: Use the terraform module with TerraformBinary set to "terragrunt".
+//    This works because terragrunt is a thin wrapper around terraform for single units.
+//    See: TestTerragruntExample, TestTerragruntConsole
+//
+// 2. STACK TESTING: Use the dedicated terragrunt module with ApplyAll/DestroyAll.
+//    This is for testing a stack of Terragrunt units with dependencies using --all commands.
+//    See: TestTerragruntMultiModuleExample
+
+// TestTerragruntExample demonstrates testing a single Terragrunt unit using the terraform package.
+// For unit testing, use terraform.Options with TerraformBinary set to "terragrunt".
+func TestTerragruntExample(t *testing.T) {
+	t.Parallel()
+
+	// Copy the example folder to a temp folder to avoid state conflicts between parallel tests.
+	testFolder, err := files.CopyTerragruntFolderToTemp("../../examples/terragrunt-example", t.Name())
+	require.NoError(t, err)
+
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		// Set the path to the Terragrunt unit that will be tested.
+		TerraformDir: testFolder,
+		// Set the terraform binary path to terragrunt so that terratest uses terragrunt
+		// instead of terraform. You must ensure that you have terragrunt downloaded and
+		// available in your PATH.
+		TerraformBinary: "terragrunt",
+	})
+
+	// Clean up resources with "terragrunt destroy" at the end of the test.
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
+
+	// Run "terragrunt apply". Under the hood, terragrunt will run "terraform init" and
+	// "terraform apply". Fail the test if there are any errors.
+	terraform.ApplyContext(t, t.Context(), terraformOptions)
+
+	// Run `terraform output` to get the values of output variables and check they have
+	// the expected values.
+	// Note: When using terragrunt, OutputAll is recommended because terragrunt returns
+	// all outputs in the full JSON format even when a specific key is requested.
+	outputs := terraform.OutputAllContext(t, t.Context(), terraformOptions)
+	assert.Equal(t, "one input another input", outputs["output"])
+}
+
+// TestTerragruntConsole demonstrates running terragrunt console command.
+func TestTerragruntConsole(t *testing.T) {
+	t.Parallel()
+
+	// Copy the example folder to a temp folder to avoid state conflicts between parallel tests.
+	testFolder, err := files.CopyTerragruntFolderToTemp("../../examples/terragrunt-example", t.Name())
+	require.NoError(t, err)
+
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir:    testFolder,
+		TerraformBinary: "terragrunt",
+		Stdin:           strings.NewReader("local.mylocal"),
+	})
+
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
+
+	// Run "terragrunt run -- console".
+	out := terraform.RunTerraformCommandContext(t, t.Context(), terraformOptions, "run", "--", "console")
+	assert.Contains(t, out, `"local variable named mylocal"`)
+}
+
+// TestTerragruntMultiModuleExample demonstrates testing a stack of Terragrunt units
+// using the dedicated terragrunt package. Use this approach when you have a stack of
+// units with dependencies that need to be applied/destroyed together using --all.
+func TestTerragruntMultiModuleExample(t *testing.T) {
+	t.Parallel()
+
+	// Copy the entire example folder (including modules) to a temp folder.
+	// We copy the parent folder because terragrunt.hcl files reference ../modules.
+	testFolder, err := files.CopyTerragruntFolderToTemp(
+		"../../examples/terragrunt-multi-module-example", t.Name())
+	require.NoError(t, err)
+
+	ctx := t.Context()
+
+	options := &terragrunt.Options{
+		// Run from the live subfolder where the terragrunt configs are
+		TerragruntDir: filepath.Join(testFolder, "live"),
+		// Optional: Set log level for cleaner output
+		TerragruntArgs: []string{"--log-level", "error"},
+	}
+
+	// Clean up all modules with "terragrunt destroy --all" at the end of the test.
+	// DestroyAllContext respects the reverse dependency order.
+	defer terragrunt.DestroyAllContext(t, ctx, options)
+
+	// Run "terragrunt apply --all". This applies all modules in dependency order.
+	terragrunt.ApplyAllContext(t, ctx, options)
+
+	// Verify the plan shows no changes (infrastructure is up-to-date)
+	exitCode := terragrunt.PlanAllExitCodeContext(t, ctx, options)
+	assert.Equal(t, 0, exitCode, "Plan should show no changes after apply")
+}

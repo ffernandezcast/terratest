@@ -2,368 +2,434 @@ package azure
 
 import (
 	"context"
-	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/services/servicebus/mgmt/2017-04-01/servicebus"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus/v2"
+	"github.com/gruntwork-io/terratest/modules/testing"
 	"github.com/stretchr/testify/require"
 )
 
-func serviceBusNamespaceClientE(subscriptionID string) (*servicebus.NamespacesClient, error) {
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-
-	nsClient := servicebus.NewNamespacesClient(subscriptionID)
-	nsClient.Authorizer = *authorizer
-	return &nsClient, nil
+func serviceBusNamespaceClientE(subscriptionID string) (*armservicebus.NamespacesClient, error) {
+	return CreateServiceBusNamespacesClientE(subscriptionID) //nolint:contextcheck
 }
 
-func serviceBusTopicClientE(subscriptionID string) (*servicebus.TopicsClient, error) {
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-
-	tClient := servicebus.NewTopicsClient(subscriptionID)
-	tClient.Authorizer = *authorizer
-	return &tClient, nil
+func serviceBusTopicClientE(subscriptionID string) (*armservicebus.TopicsClient, error) {
+	return CreateServiceBusTopicsClientE(subscriptionID) //nolint:contextcheck
 }
 
-func serviceBusSubscriptionsClientE(subscriptionID string) (*servicebus.SubscriptionsClient, error) {
-	authorizer, err := NewAuthorizer()
-	if err != nil {
-		return nil, err
-	}
-
-	sClient := servicebus.NewSubscriptionsClient(subscriptionID)
-	sClient.Authorizer = *authorizer
-	return &sClient, nil
+func serviceBusSubscriptionsClientE(subscriptionID string) (*armservicebus.SubscriptionsClient, error) {
+	return CreateServiceBusSubscriptionsClientE(subscriptionID) //nolint:contextcheck
 }
 
-// ListServiceBusNamespaceE list all SB namespaces in all resource groups in the given subscription ID.
-func ListServiceBusNamespaceE(subscriptionID string) ([]servicebus.SBNamespace, error) {
-	nsClient, err := serviceBusNamespaceClientE(subscriptionID)
+// ListServiceBusNamespaceContextE lists all SB namespaces in all resource groups in the given subscription ID.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceContextE(ctx context.Context, subscriptionID string) ([]*armservicebus.SBNamespace, error) {
+	nsClient, err := serviceBusNamespaceClientE(subscriptionID) //nolint:contextcheck
 	if err != nil {
 		return nil, err
 	}
 
-	iteratorSBNamespace, err := nsClient.ListComplete(context.Background())
-	if err != nil {
-		return nil, err
-	}
+	return ListServiceBusNamespaceWithClient(ctx, nsClient)
+}
 
-	results := make([]servicebus.SBNamespace, 0)
-	for iteratorSBNamespace.NotDone() {
-		results = append(results, iteratorSBNamespace.Value())
-		if err := iteratorSBNamespace.Next(); err != nil {
+// ListServiceBusNamespaceWithClient lists all SB namespaces using the provided NamespacesClient.
+func ListServiceBusNamespaceWithClient(ctx context.Context, client *armservicebus.NamespacesClient) ([]*armservicebus.SBNamespace, error) {
+	pager := client.NewListPager(nil)
+
+	var results []*armservicebus.SBNamespace
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
 			return nil, err
 		}
+
+		results = append(results, page.Value...)
 	}
 
 	return results, nil
 }
 
-// ListServiceBusNamespace - list all SB namespaces in all resource groups in the given subscription ID. This function would fail the test if there is an error.
-func ListServiceBusNamespace(t *testing.T, subscriptionID string) []servicebus.SBNamespace {
-	results, err := ListServiceBusNamespaceE(subscriptionID)
+// ListServiceBusNamespaceContext lists all SB namespaces in all resource groups in the given subscription ID.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceContext(t testing.TestingT, ctx context.Context, subscriptionID string) []*armservicebus.SBNamespace {
+	t.Helper()
 
+	results, err := ListServiceBusNamespaceContextE(ctx, subscriptionID)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListServiceBusNamespaceNamesE list names of all SB namespaces in all resource groups in the given subscription ID.
-func ListServiceBusNamespaceNamesE(subscriptionID string) ([]string, error) {
-	sbNamespace, err := ListServiceBusNamespaceE(subscriptionID)
-
+// ListServiceBusNamespaceNamesContextE lists names of all SB namespaces in all resource groups in the given subscription ID.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceNamesContextE(ctx context.Context, subscriptionID string) ([]string, error) {
+	sbNamespace, err := ListServiceBusNamespaceContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
 	results := BuildNamespaceNamesList(sbNamespace)
+
 	return results, nil
 }
 
-// BuildNamespaceNamesList helper method to build namespace name list
-func BuildNamespaceNamesList(sbNamespace []servicebus.SBNamespace) []string {
-	results := []string{}
+// BuildNamespaceNamesList is a helper method to build a namespace name list.
+func BuildNamespaceNamesList(sbNamespace []*armservicebus.SBNamespace) []string {
+	results := make([]string, 0, len(sbNamespace))
+
 	for _, namespace := range sbNamespace {
+		if namespace == nil || namespace.Name == nil {
+			continue
+		}
+
 		results = append(results, *namespace.Name)
-
 	}
 
 	return results
 }
 
-// BuildNamespaceIdsList helper method to build namespace id list
-func BuildNamespaceIdsList(sbNamespace []servicebus.SBNamespace) []string {
-	results := []string{}
+// BuildNamespaceIdsList is a helper method to build a namespace id list.
+func BuildNamespaceIdsList(sbNamespace []*armservicebus.SBNamespace) []string {
+	results := make([]string, 0, len(sbNamespace))
+
 	for _, namespace := range sbNamespace {
-		results = append(results, *namespace.ID)
+		if namespace == nil || namespace.ID == nil {
+			continue
+		}
 
+		results = append(results, *namespace.ID)
 	}
 
 	return results
 }
 
-// ListServiceBusNamespaceNames list names of all SB namespaces in all resource groups in the given subscription ID. This function would fail the test if there is an error.
-func ListServiceBusNamespaceNames(t *testing.T, subscriptionID string) []string {
-	results, err := ListServiceBusNamespaceNamesE(subscriptionID)
+// ListServiceBusNamespaceNamesContext lists names of all SB namespaces in all resource groups in the given subscription ID.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceNamesContext(t testing.TestingT, ctx context.Context, subscriptionID string) []string {
+	t.Helper()
 
+	results, err := ListServiceBusNamespaceNamesContextE(ctx, subscriptionID)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListServiceBusNamespaceIDsE list IDs of all SB namespaces in all resource groups in the given subscription ID.
-func ListServiceBusNamespaceIDsE(subscriptionID string) ([]string, error) {
-	sbNamespace, err := ListServiceBusNamespaceE(subscriptionID)
-
+// ListServiceBusNamespaceIDsContextE lists IDs of all SB namespaces in all resource groups in the given subscription ID.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceIDsContextE(ctx context.Context, subscriptionID string) ([]string, error) {
+	sbNamespace, err := ListServiceBusNamespaceContextE(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
 
 	results := BuildNamespaceIdsList(sbNamespace)
+
 	return results, nil
 }
 
-// ListServiceBusNamespaceIDs list IDs of all SB namespaces in all resource groups in the given subscription ID. This function would fail the test if there is an error.
-func ListServiceBusNamespaceIDs(t *testing.T, subscriptionID string) []string {
-	results, err := ListServiceBusNamespaceIDsE(subscriptionID)
+// ListServiceBusNamespaceIDsContext lists IDs of all SB namespaces in all resource groups in the given subscription ID.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceIDsContext(t testing.TestingT, ctx context.Context, subscriptionID string) []string {
+	t.Helper()
+
+	results, err := ListServiceBusNamespaceIDsContextE(ctx, subscriptionID)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListServiceBusNamespaceByResourceGroupE list all SB namespaces in the given resource group.
-func ListServiceBusNamespaceByResourceGroupE(subscriptionID string, resourceGroup string) ([]servicebus.SBNamespace, error) {
-	nsClient, err := serviceBusNamespaceClientE(subscriptionID)
+// ListServiceBusNamespaceByResourceGroupContextE lists all SB namespaces in the given resource group.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceByResourceGroupContextE(ctx context.Context, subscriptionID string, resourceGroup string) ([]*armservicebus.SBNamespace, error) {
+	nsClient, err := serviceBusNamespaceClientE(subscriptionID) //nolint:contextcheck
 	if err != nil {
 		return nil, err
 	}
 
-	iteratorSBNamespace, err := nsClient.ListByResourceGroupComplete(context.Background(), resourceGroup)
-	if err != nil {
-		return nil, err
-	}
+	pager := nsClient.NewListByResourceGroupPager(resourceGroup, nil)
 
-	results := make([]servicebus.SBNamespace, 0)
+	var results []*armservicebus.SBNamespace
 
-	for iteratorSBNamespace.NotDone() {
-		results = append(results, iteratorSBNamespace.Value())
-		if err := iteratorSBNamespace.Next(); err != nil {
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
 			return nil, err
 		}
+
+		results = append(results, page.Value...)
 	}
 
 	return results, nil
 }
 
-// ListServiceBusNamespaceByResourceGroup list all SB namespaces in the given resource group. This function would fail the test if there is an error.
-func ListServiceBusNamespaceByResourceGroup(t *testing.T, subscriptionID string, resourceGroup string) []servicebus.SBNamespace {
-	results, err := ListServiceBusNamespaceByResourceGroupE(subscriptionID, resourceGroup)
+// ListServiceBusNamespaceByResourceGroupContext lists all SB namespaces in the given resource group.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceByResourceGroupContext(t testing.TestingT, ctx context.Context, subscriptionID string, resourceGroup string) []*armservicebus.SBNamespace {
+	t.Helper()
+
+	results, err := ListServiceBusNamespaceByResourceGroupContextE(ctx, subscriptionID, resourceGroup)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListServiceBusNamespaceNamesByResourceGroupE list names of all SB namespaces in the given resource group. This function would fail the test if there is an error.
-func ListServiceBusNamespaceNamesByResourceGroupE(subscriptionID string, resourceGroup string) ([]string, error) {
-	sbNamespace, err := ListServiceBusNamespaceByResourceGroupE(subscriptionID, resourceGroup)
-
+// ListServiceBusNamespaceNamesByResourceGroupContextE lists names of all SB namespaces in the given resource group.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceNamesByResourceGroupContextE(ctx context.Context, subscriptionID string, resourceGroup string) ([]string, error) {
+	sbNamespace, err := ListServiceBusNamespaceByResourceGroupContextE(ctx, subscriptionID, resourceGroup)
 	if err != nil {
 		return nil, err
 	}
 
 	results := BuildNamespaceNamesList(sbNamespace)
+
 	return results, nil
 }
 
-// ListServiceBusNamespaceNamesByResourceGroup list names of all SB namespaces in the given resource group.
-func ListServiceBusNamespaceNamesByResourceGroup(t *testing.T, subscriptionID string, resourceGroup string) []string {
-	results, err := ListServiceBusNamespaceNamesByResourceGroupE(subscriptionID, resourceGroup)
+// ListServiceBusNamespaceNamesByResourceGroupContext lists names of all SB namespaces in the given resource group.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceNamesByResourceGroupContext(t testing.TestingT, ctx context.Context, subscriptionID string, resourceGroup string) []string {
+	t.Helper()
+
+	results, err := ListServiceBusNamespaceNamesByResourceGroupContextE(ctx, subscriptionID, resourceGroup)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListServiceBusNamespaceIDsByResourceGroupE list IDs of all SB namespaces in the given resource group.
-func ListServiceBusNamespaceIDsByResourceGroupE(subscriptionID string, resourceGroup string) ([]string, error) {
-	sbNamespace, err := ListServiceBusNamespaceByResourceGroupE(subscriptionID, resourceGroup)
-
+// ListServiceBusNamespaceIDsByResourceGroupContextE lists IDs of all SB namespaces in the given resource group.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceIDsByResourceGroupContextE(ctx context.Context, subscriptionID string, resourceGroup string) ([]string, error) {
+	sbNamespace, err := ListServiceBusNamespaceByResourceGroupContextE(ctx, subscriptionID, resourceGroup)
 	if err != nil {
 		return nil, err
 	}
 
 	results := BuildNamespaceIdsList(sbNamespace)
+
 	return results, nil
 }
 
-// ListServiceBusNamespaceIDsByResourceGroup list IDs of all SB namespaces in the given resource group. This function would fail the test if there is an error.
-func ListServiceBusNamespaceIDsByResourceGroup(t *testing.T, subscriptionID string, resourceGroup string) []string {
-	results, err := ListServiceBusNamespaceIDsByResourceGroupE(subscriptionID, resourceGroup)
+// ListServiceBusNamespaceIDsByResourceGroupContext lists IDs of all SB namespaces in the given resource group.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListServiceBusNamespaceIDsByResourceGroupContext(t testing.TestingT, ctx context.Context, subscriptionID string, resourceGroup string) []string {
+	t.Helper()
+
+	results, err := ListServiceBusNamespaceIDsByResourceGroupContextE(ctx, subscriptionID, resourceGroup)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListNamespaceAuthRulesE - authenticate namespace client and enumerates all values to get list of authorization rules for the given namespace name,
+// ListNamespaceAuthRulesContextE authenticates the namespace client and enumerates all values to get a list
+// of authorization rules for the given namespace name, automatically crossing page boundaries as required.
+// The ctx parameter supports cancellation and timeouts.
+func ListNamespaceAuthRulesContextE(ctx context.Context, subscriptionID string, namespace string, resourceGroup string) ([]string, error) {
+	nsClient, err := serviceBusNamespaceClientE(subscriptionID) //nolint:contextcheck
+	if err != nil {
+		return nil, err
+	}
+
+	pager := nsClient.NewListAuthorizationRulesPager(resourceGroup, namespace, nil)
+
+	var results []string
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, rule := range page.Value {
+			if rule == nil || rule.Name == nil {
+				continue
+			}
+
+			results = append(results, *rule.Name)
+		}
+	}
+
+	return results, nil
+}
+
+// ListNamespaceAuthRulesContext authenticates the namespace client and enumerates all values to get a list
+// of authorization rules for the given namespace name, automatically crossing page boundaries as required.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListNamespaceAuthRulesContext(t testing.TestingT, ctx context.Context, subscriptionID string, namespace string, resourceGroup string) []string {
+	t.Helper()
+
+	results, err := ListNamespaceAuthRulesContextE(ctx, subscriptionID, namespace, resourceGroup)
+	require.NoError(t, err)
+
+	return results
+}
+
+// ListNamespaceTopicsContextE authenticates the topic client and enumerates all values,
 // automatically crossing page boundaries as required.
-func ListNamespaceAuthRulesE(subscriptionID string, namespace string, resourceGroup string) ([]string, error) {
-	nsClient, err := serviceBusNamespaceClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	iteratorNamespaceRules, err := nsClient.ListAuthorizationRulesComplete(
-		context.Background(), resourceGroup, namespace)
-
+// The ctx parameter supports cancellation and timeouts.
+func ListNamespaceTopicsContextE(ctx context.Context, subscriptionID string, namespace string, resourceGroup string) ([]*armservicebus.SBTopic, error) {
+	tClient, err := serviceBusTopicClientE(subscriptionID) //nolint:contextcheck
 	if err != nil {
 		return nil, err
 	}
 
-	results := []string{}
-	for iteratorNamespaceRules.NotDone() {
-		results = append(results, *(iteratorNamespaceRules.Value()).Name)
-		if err := iteratorNamespaceRules.Next(); err != nil {
+	pager := tClient.NewListByNamespacePager(resourceGroup, namespace, nil)
+
+	var results []*armservicebus.SBTopic
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
 			return nil, err
 		}
-	}
-	return results, nil
-}
 
-// ListNamespaceAuthRules - authenticate namespace client and enumerates all values to get list of authorization rules for the given namespace name,
-// automatically crossing page boundaries as required. This function would fail the test if there is an error.
-func ListNamespaceAuthRules(t *testing.T, subscriptionID string, namespace string, resourceGroup string) []string {
-	results, err := ListNamespaceAuthRulesE(subscriptionID, namespace, resourceGroup)
-	require.NoError(t, err)
-
-	return results
-}
-
-// ListNamespaceTopicsE - authenticate topic client and enumerates all values, automatically crossing page boundaries as required.
-func ListNamespaceTopicsE(subscriptionID string, namespace string, resourceGroup string) ([]servicebus.SBTopic, error) {
-	tClient, err := serviceBusTopicClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-
-	iteratorTopics, err := tClient.ListByNamespaceComplete(context.Background(), resourceGroup, namespace, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	results := make([]servicebus.SBTopic, 0)
-
-	for iteratorTopics.NotDone() {
-		results = append(results, iteratorTopics.Value())
-		if err := iteratorTopics.Next(); err != nil {
-			return nil, err
-		}
+		results = append(results, page.Value...)
 	}
 
 	return results, nil
 }
 
-// ListNamespaceTopics - authenticate topic client and enumerates all values, automatically crossing page boundaries as required. This function would fail the test if there is an error.
-func ListNamespaceTopics(t *testing.T, subscriptionID string, namespace string, resourceGroup string) []servicebus.SBTopic {
-	results, err := ListNamespaceTopicsE(subscriptionID, namespace, resourceGroup)
-	require.NoError(t, err)
-
-	return results
-}
-
-// ListTopicSubscriptionsE - authenticate subscriptions client and enumerates all values, automatically crossing page boundaries as required.
-func ListTopicSubscriptionsE(subscriptionID string, namespace string, resourceGroup string, topicName string) ([]servicebus.SBSubscription, error) {
-	sClient, err := serviceBusSubscriptionsClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	iteratorSubscription, err := sClient.ListByTopicComplete(context.Background(), resourceGroup, namespace, topicName, nil, nil)
-
-	if err != nil {
-		return nil, err
-	}
-
-	results := make([]servicebus.SBSubscription, 0)
-
-	for iteratorSubscription.NotDone() {
-		results = append(results, iteratorSubscription.Value())
-		if err := iteratorSubscription.Next(); err != nil {
-			return nil, err
-		}
-	}
-	return results, nil
-}
-
-// ListTopicSubscriptions - authenticate subscriptions client and enumerates all values, automatically crossing page boundaries as required. This function would fail the test if there is an error.
-func ListTopicSubscriptions(t *testing.T, subscriptionID string, namespace string, resourceGroup string, topicName string) []servicebus.SBSubscription {
-	results, err := ListTopicSubscriptionsE(subscriptionID, namespace, resourceGroup, topicName)
-	require.NoError(t, err)
-
-	return results
-}
-
-// ListTopicSubscriptionsNameE - authenticate subscriptions client and enumerates all values to get list of subscriptions for the given topic name,
+// ListNamespaceTopicsContext authenticates the topic client and enumerates all values,
 // automatically crossing page boundaries as required.
-func ListTopicSubscriptionsNameE(subscriptionID string, namespace string, resourceGroup string, topicName string) ([]string, error) {
-	sClient, err := serviceBusSubscriptionsClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	iteratorSubscription, err := sClient.ListByTopicComplete(context.Background(), resourceGroup, namespace, topicName, nil, nil)
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListNamespaceTopicsContext(t testing.TestingT, ctx context.Context, subscriptionID string, namespace string, resourceGroup string) []*armservicebus.SBTopic {
+	t.Helper()
 
-	if err != nil {
-		return nil, err
-	}
-
-	results := []string{}
-	for iteratorSubscription.NotDone() {
-		results = append(results, *(iteratorSubscription.Value()).Name)
-		if err := iteratorSubscription.Next(); err != nil {
-			return nil, err
-		}
-	}
-	return results, nil
-}
-
-// ListTopicSubscriptionsName -  authenticate subscriptions client and enumerates all values to get list of subscriptions for the given topic name,
-// automatically crossing page boundaries as required. This function would fail the test if there is an error.
-func ListTopicSubscriptionsName(t *testing.T, subscriptionID string, namespace string, resourceGroup string, topicName string) []string {
-	results, err := ListTopicSubscriptionsNameE(subscriptionID, namespace, resourceGroup, topicName)
+	results, err := ListNamespaceTopicsContextE(ctx, subscriptionID, namespace, resourceGroup)
 	require.NoError(t, err)
 
 	return results
 }
 
-// ListTopicAuthRulesE - authenticate topic client and enumerates all values to get list of authorization rules for the given topic name,
+// ListTopicSubscriptionsContextE authenticates the subscriptions client and enumerates all values,
 // automatically crossing page boundaries as required.
-func ListTopicAuthRulesE(subscriptionID string, namespace string, resourceGroup string, topicName string) ([]string, error) {
-	tClient, err := serviceBusTopicClientE(subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	iteratorTopicsRules, err := tClient.ListAuthorizationRulesComplete(
-		context.Background(), resourceGroup, namespace, topicName)
-
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicSubscriptionsContextE(ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) ([]*armservicebus.SBSubscription, error) {
+	sClient, err := serviceBusSubscriptionsClientE(subscriptionID) //nolint:contextcheck
 	if err != nil {
 		return nil, err
 	}
 
-	results := []string{}
-	for iteratorTopicsRules.NotDone() {
-		results = append(results, *(iteratorTopicsRules.Value()).Name)
-		if err := iteratorTopicsRules.Next(); err != nil {
+	pager := sClient.NewListByTopicPager(resourceGroup, namespace, topicName, nil)
+
+	var results []*armservicebus.SBSubscription
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
 			return nil, err
 		}
+
+		results = append(results, page.Value...)
 	}
+
 	return results, nil
 }
 
-// ListTopicAuthRules - authenticate topic client and enumerates all values to get list of authorization rules for the given topic name,
-// automatically crossing page boundaries as required.  This function would fail the test if there is an error.
-func ListTopicAuthRules(t *testing.T, subscriptionID string, namespace string, resourceGroup string, topicName string) []string {
-	results, err := ListTopicAuthRulesE(subscriptionID, namespace, resourceGroup, topicName)
+// ListTopicSubscriptionsContext authenticates the subscriptions client and enumerates all values,
+// automatically crossing page boundaries as required.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicSubscriptionsContext(t testing.TestingT, ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) []*armservicebus.SBSubscription {
+	t.Helper()
+
+	results, err := ListTopicSubscriptionsContextE(ctx, subscriptionID, namespace, resourceGroup, topicName)
+	require.NoError(t, err)
+
+	return results
+}
+
+// ListTopicSubscriptionsNameContextE authenticates the subscriptions client and enumerates all values to get
+// a list of subscriptions for the given topic name, automatically crossing page boundaries as required.
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicSubscriptionsNameContextE(ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) ([]string, error) {
+	sClient, err := serviceBusSubscriptionsClientE(subscriptionID) //nolint:contextcheck
+	if err != nil {
+		return nil, err
+	}
+
+	pager := sClient.NewListByTopicPager(resourceGroup, namespace, topicName, nil)
+
+	var results []string
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, sub := range page.Value {
+			if sub == nil || sub.Name == nil {
+				continue
+			}
+
+			results = append(results, *sub.Name)
+		}
+	}
+
+	return results, nil
+}
+
+// ListTopicSubscriptionsNameContext authenticates the subscriptions client and enumerates all values to get
+// a list of subscriptions for the given topic name, automatically crossing page boundaries as required.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicSubscriptionsNameContext(t testing.TestingT, ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) []string {
+	t.Helper()
+
+	results, err := ListTopicSubscriptionsNameContextE(ctx, subscriptionID, namespace, resourceGroup, topicName)
+	require.NoError(t, err)
+
+	return results
+}
+
+// ListTopicAuthRulesContextE authenticates the topic client and enumerates all values to get a list
+// of authorization rules for the given topic name, automatically crossing page boundaries as required.
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicAuthRulesContextE(ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) ([]string, error) {
+	tClient, err := serviceBusTopicClientE(subscriptionID) //nolint:contextcheck
+	if err != nil {
+		return nil, err
+	}
+
+	pager := tClient.NewListAuthorizationRulesPager(resourceGroup, namespace, topicName, nil)
+
+	var results []string
+
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, rule := range page.Value {
+			if rule == nil || rule.Name == nil {
+				continue
+			}
+
+			results = append(results, *rule.Name)
+		}
+	}
+
+	return results, nil
+}
+
+// ListTopicAuthRulesContext authenticates the topic client and enumerates all values to get a list
+// of authorization rules for the given topic name, automatically crossing page boundaries as required.
+// This function would fail the test if there is an error.
+// The ctx parameter supports cancellation and timeouts.
+func ListTopicAuthRulesContext(t testing.TestingT, ctx context.Context, subscriptionID string, namespace string, resourceGroup string, topicName string) []string {
+	t.Helper()
+
+	results, err := ListTopicAuthRulesContextE(ctx, subscriptionID, namespace, resourceGroup, topicName)
 	require.NoError(t, err)
 
 	return results

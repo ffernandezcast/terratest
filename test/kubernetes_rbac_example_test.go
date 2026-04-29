@@ -1,3 +1,4 @@
+//go:build kubeall || kubernetes
 // +build kubeall kubernetes
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests. This is done because minikube
@@ -6,7 +7,7 @@
 // tests separately from the others. This may not be necessary if you have a sufficiently powerful machine.  We
 // recommend at least 4 cores and 16GB of RAM if you want to run all the tests together.
 
-package test
+package test_test
 
 import (
 	"os"
@@ -25,8 +26,10 @@ func TestKubernetesRBACExample(t *testing.T) {
 	t.Parallel()
 
 	// These are pulled from the kubernetes resource config
-	const serviceAccountName = "terratest-rbac-example-service-account"
-	const namespaceName = "terratest-rbac-example-namespace"
+	const (
+		serviceAccountName = "terratest-rbac-example-service-account"
+		namespaceName      = "terratest-rbac-example-namespace"
+	)
 
 	// Path to the Kubernetes resource config we will test
 	kubeResourcePath, err := filepath.Abs("../examples/kubernetes-rbac-example/namespace-service-account.yml")
@@ -36,16 +39,17 @@ func TestKubernetesRBACExample(t *testing.T) {
 	// entries to be able to add a new authentication option.
 	tmpConfigPath := k8s.CopyHomeKubeConfigToTemp(t)
 	defer os.Remove(tmpConfigPath)
+
 	options := k8s.NewKubectlOptions("", tmpConfigPath, namespaceName)
 
 	// At the end of the test, run `kubectl delete -f RESOURCE_CONFIG` to clean up any resources that were created.
-	defer k8s.KubectlDelete(t, options, kubeResourcePath)
+	defer k8s.KubectlDeleteContext(t, t.Context(), options, kubeResourcePath)
 
 	// This will run `kubectl apply -f RESOURCE_CONFIG` and fail the test if there are any errors
-	k8s.KubectlApply(t, options, kubeResourcePath)
+	k8s.KubectlApplyContext(t, t.Context(), options, kubeResourcePath)
 
 	// Retrieve authentication token for the newly created ServiceAccount
-	token := k8s.GetServiceAccountAuthToken(t, options, serviceAccountName)
+	token := k8s.GetServiceAccountAuthTokenContext(t, t.Context(), options, serviceAccountName)
 
 	// Now update the configuration to add a new context that can be used to make requests as that service account
 	require.NoError(t, k8s.AddConfigContextForServiceAccountE(
@@ -65,12 +69,12 @@ func TestKubernetesRBACExample(t *testing.T) {
 		Verb:      "list",
 		Resource:  "pod",
 	}
-	require.False(t, k8s.CanIDo(t, serviceAccountKubectlOptions, adminListPodAction))
+	require.False(t, k8s.CanIDoContext(t, t.Context(), serviceAccountKubectlOptions, adminListPodAction))
 	// - we can access the namespace the service account is in
 	namespaceListPodAction := authv1.ResourceAttributes{
 		Namespace: namespaceName,
 		Verb:      "list",
 		Resource:  "pod",
 	}
-	require.True(t, k8s.CanIDo(t, serviceAccountKubectlOptions, namespaceListPodAction))
+	require.True(t, k8s.CanIDoContext(t, t.Context(), serviceAccountKubectlOptions, namespaceListPodAction))
 }

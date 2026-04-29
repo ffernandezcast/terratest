@@ -1,14 +1,16 @@
-package test
+//go:build aws
+
+package test_test
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/gruntwork-io/terratest/modules/aws"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 
-	awsSDK "github.com/aws/aws-sdk-go/aws"
+	awsSDK "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,11 +18,11 @@ import (
 func TestTerraformAwsEcsExample(t *testing.T) {
 	t.Parallel()
 
-	expectedClusterName := fmt.Sprintf("terratest-aws-ecs-example-cluster-%s", random.UniqueId())
-	expectedServiceName := fmt.Sprintf("terratest-aws-ecs-example-service-%s", random.UniqueId())
+	expectedClusterName := "terratest-aws-ecs-example-cluster-" + random.UniqueID()
+	expectedServiceName := "terratest-aws-ecs-example-service-" + random.UniqueID()
 
 	// Pick a random AWS region to test in. This helps ensure your code works in all regions.
-	awsRegion := aws.GetRandomStableRegion(t, []string{"us-east-1", "eu-west-1"}, nil)
+	awsRegion := aws.GetRandomStableRegionContext(t, t.Context(), []string{"us-east-1", "eu-west-1"}, nil)
 
 	// Construct the terraform options with default retryable errors to handle the most common retryable errors in
 	// terraform testing.
@@ -37,29 +39,29 @@ func TestTerraformAwsEcsExample(t *testing.T) {
 	})
 
 	// At the end of the test, run `terraform destroy` to clean up any resources that were created
-	defer terraform.Destroy(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
 	// This will run `terraform init` and `terraform apply` and fail the test if there are any errors
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// Run `terraform output` to get the value of an output variable
-	taskDefinition := terraform.Output(t, terraformOptions, "task_definition")
+	taskDefinition := terraform.OutputContext(t, t.Context(), terraformOptions, "task_definition")
 
 	// Look up the ECS cluster by name
-	cluster := aws.GetEcsCluster(t, awsRegion, expectedClusterName)
+	cluster := aws.GetEcsClusterContext(t, t.Context(), awsRegion, expectedClusterName)
 
-	assert.Equal(t, int64(1), awsSDK.Int64Value(cluster.ActiveServicesCount))
+	assert.Equal(t, int32(1), cluster.ActiveServicesCount)
 
 	// Look up the ECS service by name
-	service := aws.GetEcsService(t, awsRegion, expectedClusterName, expectedServiceName)
+	service := aws.GetEcsServiceContext(t, t.Context(), awsRegion, expectedClusterName, expectedServiceName)
 
-	assert.Equal(t, int64(0), awsSDK.Int64Value(service.DesiredCount))
-	assert.Equal(t, "FARGATE", awsSDK.StringValue(service.LaunchType))
+	assert.Equal(t, int32(0), service.DesiredCount)
+	assert.Equal(t, types.LaunchTypeFargate, service.LaunchType)
 
 	// Look up the ECS task definition by ARN
-	task := aws.GetEcsTaskDefinition(t, awsRegion, taskDefinition)
+	task := aws.GetEcsTaskDefinitionContext(t, t.Context(), awsRegion, taskDefinition)
 
-	assert.Equal(t, "256", awsSDK.StringValue(task.Cpu))
-	assert.Equal(t, "512", awsSDK.StringValue(task.Memory))
-	assert.Equal(t, "awsvpc", awsSDK.StringValue(task.NetworkMode))
+	assert.Equal(t, "256", awsSDK.ToString(task.Cpu))
+	assert.Equal(t, "512", awsSDK.ToString(task.Memory))
+	assert.Equal(t, types.NetworkModeAwsvpc, task.NetworkMode)
 }

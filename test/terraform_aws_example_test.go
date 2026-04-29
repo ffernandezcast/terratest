@@ -1,7 +1,8 @@
-package test
+//go:build aws
+
+package test_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/aws"
@@ -21,13 +22,13 @@ func TestTerraformAwsExample(t *testing.T) {
 
 	// Give this EC2 Instance a unique ID for a name tag so we can distinguish it from any other EC2 Instance running
 	// in your AWS account
-	expectedName := fmt.Sprintf("terratest-aws-example-%s", random.UniqueId())
+	expectedName := "terratest-aws-example-" + random.UniqueID()
 
 	// Pick a random AWS region to test in. This helps ensure your code works in all regions.
-	awsRegion := aws.GetRandomStableRegion(t, nil, nil)
+	awsRegion := aws.GetRandomStableRegionContext(t, t.Context(), nil, nil)
 
 	// Some AWS regions are missing certain instance types, so pick an available type based on the region we picked
-	instanceType := aws.GetRecommendedInstanceType(t, awsRegion, []string{"t2.micro", "t3.micro"})
+	instanceType := aws.GetRecommendedInstanceTypeContext(t, t.Context(), awsRegion, []string{"t2.micro", "t3.micro"})
 
 	// website::tag::1::Configure Terraform setting path to Terraform code, EC2 instance name, and AWS Region. We also
 	// configure the options with default retryable errors to handle the most common retryable errors encountered in
@@ -49,18 +50,18 @@ func TestTerraformAwsExample(t *testing.T) {
 	})
 
 	// website::tag::4::At the end of the test, run `terraform destroy` to clean up any resources that were created
-	defer terraform.Destroy(t, terraformOptions)
+	defer terraform.DestroyContext(t, t.Context(), terraformOptions)
 
 	// website::tag::2::Run `terraform init` and `terraform apply` and fail the test if there are any errors
-	terraform.InitAndApply(t, terraformOptions)
+	terraform.InitAndApplyContext(t, t.Context(), terraformOptions)
 
 	// Run `terraform output` to get the value of an output variable
-	instanceID := terraform.Output(t, terraformOptions, "instance_id")
+	instanceID := terraform.OutputContext(t, t.Context(), terraformOptions, "instance_id")
 
-	aws.AddTagsToResource(t, awsRegion, instanceID, map[string]string{"testing": "testing-tag-value"})
+	aws.AddTagsToResourceContext(t, t.Context(), awsRegion, instanceID, map[string]string{"testing": "testing-tag-value"})
 
 	// Look up the tags for the given Instance ID
-	instanceTags := aws.GetTagsForEc2Instance(t, awsRegion, instanceID)
+	instanceTags := aws.GetTagsForEc2InstanceContext(t, t.Context(), awsRegion, instanceID)
 
 	// website::tag::3::Check if the EC2 instance with a given tag and name is set.
 	testingTag, containsTestingTag := instanceTags["testing"]

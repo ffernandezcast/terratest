@@ -1,3 +1,4 @@
+//go:build kubeall || kubernetes
 // +build kubeall kubernetes
 
 // NOTE: we have build tags to differentiate kubernetes tests from non-kubernetes tests. This is done because minikube
@@ -6,12 +7,13 @@
 // tests separately from the others. This may not be necessary if you have a sufficiently powerful machine.  We
 // recommend at least 4 cores and 16GB of RAM if you want to run all the tests together.
 
-package k8s
+package k8s_test
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/gruntwork-io/terratest/modules/k8s"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,31 +23,33 @@ import (
 func TestDeleteConfigContext(t *testing.T) {
 	t.Parallel()
 
-	path := StoreConfigToTempFile(t, BASIC_CONFIG_WITH_EXTRA_CONTEXT)
+	path := k8s.StoreConfigToTempFile(t, basicConfigWithExtraContext)
 	defer os.Remove(path)
 
-	err := DeleteConfigContextWithPathE(t, path, "extra_minikube")
+	err := k8s.DeleteConfigContextWithPathE(t, path, "extra_minikube")
 	require.NoError(t, err)
 
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	storedConfig := string(data)
-	assert.Equal(t, storedConfig, BASIC_CONFIG)
+	assert.Equal(t, basicConfig, storedConfig)
 }
 
 func TestDeleteConfigContextWithAnotherContextRemaining(t *testing.T) {
 	t.Parallel()
 
-	path := StoreConfigToTempFile(t, BASIC_CONFIG_WITH_EXTRA_CONTEXT_NO_GARBAGE)
+	path := k8s.StoreConfigToTempFile(t, basicConfigWithExtraContextNoGarbage)
 	defer os.Remove(path)
 
-	err := DeleteConfigContextWithPathE(t, path, "extra_minikube")
+	err := k8s.DeleteConfigContextWithPathE(t, path, "extra_minikube")
 	require.NoError(t, err)
 
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	storedConfig := string(data)
-	assert.Equal(t, storedConfig, EXPECTED_CONFIG_AFTER_EXTRA_MINIKUBE_DELETED_NO_GARBAGE)
+	assert.Equal(t, expectedConfigAfterExtraMinikubeDeletedNoGarbage, storedConfig)
 }
 
 func TestRemoveOrphanedClusterAndAuthInfoConfig(t *testing.T) {
@@ -58,13 +62,13 @@ func TestRemoveOrphanedClusterAndAuthInfoConfig(t *testing.T) {
 	}{
 		{
 			"TestExtraClusterRemoveOrphanedClusterAndAuthInfoed",
-			BASIC_CONFIG_WITH_EXTRA_CLUSTER,
-			BASIC_CONFIG,
+			basicConfigWithExtraCluster,
+			basicConfig,
 		},
 		{
 			"TestExtraAuthInfoRemoveOrphanedClusterAndAuthInfoed",
-			BASIC_CONFIG_WITH_EXTRA_AUTH_INFO,
-			BASIC_CONFIG,
+			basicConfigWithExtraAuthInfo,
+			basicConfig,
 		},
 	}
 	for _, testCase := range testCases {
@@ -79,24 +83,27 @@ func TestRemoveOrphanedClusterAndAuthInfoConfig(t *testing.T) {
 }
 
 func removeOrphanedClusterAndAuthInfoConfigTestFunc(t *testing.T, inputConfig string, expectedOutputConfig string) {
-	path := StoreConfigToTempFile(t, inputConfig)
+	t.Helper()
+
+	path := k8s.StoreConfigToTempFile(t, inputConfig)
 	defer os.Remove(path)
 
-	config := LoadConfigFromPath(path)
+	config := k8s.LoadConfigFromPath(path)
 	rawConfig, err := config.RawConfig()
 	require.NoError(t, err)
-	RemoveOrphanedClusterAndAuthInfoConfig(&rawConfig)
+	k8s.RemoveOrphanedClusterAndAuthInfoConfig(&rawConfig)
 	err = clientcmd.ModifyConfig(config.ConfigAccess(), rawConfig, false)
 	require.NoError(t, err)
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
+
 	storedConfig := string(data)
-	assert.Equal(t, storedConfig, expectedOutputConfig)
+	assert.Equal(t, expectedOutputConfig, storedConfig)
 }
 
 // Various example configs used in testing the config manipulation functions
 
-const BASIC_CONFIG = `apiVersion: v1
+const basicConfig = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/ca.crt
@@ -109,7 +116,6 @@ contexts:
   name: minikube
 current-context: minikube
 kind: Config
-preferences: {}
 users:
 - name: minikube
   user:
@@ -117,7 +123,7 @@ users:
     client-key: /home/terratest/.minikube/client.key
 `
 
-const BASIC_CONFIG_WITH_EXTRA_CLUSTER = `apiVersion: v1
+const basicConfigWithExtraCluster = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/ca.crt
@@ -142,7 +148,7 @@ users:
     client-key: /home/terratest/.minikube/client.key
 `
 
-const BASIC_CONFIG_WITH_EXTRA_AUTH_INFO = `apiVersion: v1
+const basicConfigWithExtraAuthInfo = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/ca.crt
@@ -167,7 +173,7 @@ users:
     client-key: /home/terratest/.minikube/extra_client.key
 `
 
-const BASIC_CONFIG_WITH_EXTRA_CONTEXT = `apiVersion: v1
+const basicConfigWithExtraContext = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/ca.crt
@@ -200,7 +206,7 @@ users:
     client-key: /home/terratest/.minikube/extra_client.key
 `
 
-const BASIC_CONFIG_WITH_EXTRA_CONTEXT_NO_GARBAGE = `apiVersion: v1
+const basicConfigWithExtraContextNoGarbage = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/ca.crt
@@ -238,7 +244,7 @@ users:
     client-key: /home/terratest/.minikube/extra_client.key
 `
 
-const EXPECTED_CONFIG_AFTER_EXTRA_MINIKUBE_DELETED_NO_GARBAGE = `apiVersion: v1
+const expectedConfigAfterExtraMinikubeDeletedNoGarbage = `apiVersion: v1
 clusters:
 - cluster:
     certificate-authority: /home/terratest/.minikube/extra_ca.crt
@@ -259,7 +265,6 @@ contexts:
   name: other_minikube
 current-context: minikube
 kind: Config
-preferences: {}
 users:
 - name: minikube
   user:

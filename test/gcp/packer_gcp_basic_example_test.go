@@ -1,8 +1,9 @@
+//go:build gcp
 // +build gcp
 
 // NOTE: We use build tags to differentiate GCP testing for better isolation and parallelism when executing our tests.
 
-package test
+package test_test
 
 import (
 	"testing"
@@ -21,6 +22,12 @@ var DefaultRetryablePackerErrors = map[string]string{
 }
 var DefaultTimeBetweenPackerRetries = 15 * time.Second
 
+// Regions that support running f1-micro instances
+var RegionsThatSupportF1Micro = []string{"us-central1", "us-east1", "us-west1", "europe-west1"}
+
+// Zones that support running f1-micro instances
+var ZonesThatSupportF1Micro = []string{"us-central1-a", "us-east1-b", "us-west1-a", "europe-north1-a", "europe-west1-b", "europe-central2-a"}
+
 const DefaultMaxPackerRetries = 3
 
 // An example of how to test the Packer template in examples/packer-basic-example using Terratest.
@@ -31,8 +38,7 @@ func TestPackerGCPBasicExample(t *testing.T) {
 	projectID := gcp.GetGoogleProjectIDFromEnvVar(t)
 
 	// Pick a random GCP zone to test in. This helps ensure your code works in all regions.
-	// On October 22, 2018, GCP launched the asia-east2 region, which promptly failed all our tests, so blacklist asia-east2.
-	zone := gcp.GetRandomZone(t, projectID, nil, nil, []string{"asia-east2"})
+	zone := gcp.GetRandomZoneContext(t, t.Context(), projectID, ZonesThatSupportF1Micro, nil, nil)
 
 	packerOptions := &packer.Options{
 		// The path to where the Packer template is located
@@ -54,9 +60,9 @@ func TestPackerGCPBasicExample(t *testing.T) {
 	}
 
 	// Make sure the Packer build completes successfully
-	imageName := packer.BuildArtifact(t, packerOptions)
+	imageName := packer.BuildArtifactContext(t, t.Context(), packerOptions)
 
 	// Delete the Image after we're done
-	image := gcp.FetchImage(t, projectID, imageName)
-	defer image.DeleteImage(t)
+	image := gcp.FetchImageContext(t, t.Context(), projectID, imageName)
+	defer image.DeleteImageContext(t, t.Context())
 }

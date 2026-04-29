@@ -13,12 +13,6 @@ const (
 	AzureResGroupName = "AZURE_RES_GROUP_NAME"
 )
 
-// GetTargetAzureSubscription is a helper function to find the correct target Azure Subscription ID,
-// with provided arguments taking precedence over environment variables
-func GetTargetAzureSubscription(subscriptionID string) (string, error) {
-	return getTargetAzureSubscription(subscriptionID)
-}
-
 func getTargetAzureSubscription(subscriptionID string) (string, error) {
 	if subscriptionID == "" {
 		if id, exists := os.LookupEnv(AzureSubscriptionID); exists {
@@ -29,12 +23,6 @@ func getTargetAzureSubscription(subscriptionID string) (string, error) {
 	}
 
 	return subscriptionID, nil
-}
-
-// GetTargetAzureResourceGroupName is a helper function to find the correct target Azure Resource Group name,
-// with provided arguments taking precedence over environment variables
-func GetTargetAzureResourceGroupName(resourceGroupName string) (string, error) {
-	return getTargetAzureResourceGroupName(resourceGroupName)
 }
 
 func getTargetAzureResourceGroupName(resourceGroupName string) (string, error) {
@@ -54,6 +42,7 @@ func safePtrToString(raw *string) string {
 	if raw == nil {
 		return ""
 	}
+
 	return *raw
 }
 
@@ -62,5 +51,23 @@ func safePtrToInt32(raw *int32) int32 {
 	if raw == nil {
 		return 0
 	}
+
 	return *raw
+}
+
+// safePtrToList converts a []*string slice to a []string slice, dereferencing each element.
+// Returns an empty slice if the input is nil.
+func safePtrToList(raw []*string) []string {
+	if raw == nil {
+		return []string{}
+	}
+
+	result := make([]string, len(raw))
+	for i, s := range raw {
+		if s != nil {
+			result[i] = *s
+		}
+	}
+
+	return result
 }
